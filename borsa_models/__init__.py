@@ -191,60 +191,78 @@ from .comprehensive_analysis_models import (
     CompositeScores, ComprehensiveFinancialAnalysis
 )
 
-# Multi-ticker models from borsa_models (Phase 1: Yahoo Finance)
-from borsa_models import (
-    MultiHizliBilgiSonucu, MultiTemettuVeAksiyonlarSonucu,
-    MultiAnalistVerileriSonucu, MultiKazancTakvimSonucu
-)
+# Multi-ticker models (Phase 1: Yahoo Finance)
+# NOTE: These classes are defined in yfinance_models.py sub-module
+try:
+    from .yfinance_models import (
+        MultiHizliBilgiSonucu, MultiTemettuVeAksiyonlarSonucu,
+        MultiAnalistVerileriSonucu, MultiKazancTakvimSonucu
+    )
+except ImportError:
+    pass
 
-# Multi-ticker models from borsa_models (Phase 2: İş Yatırım Financial Statements)
-from borsa_models import (
-    MultiFinansalTabloSonucu, MultiKarZararTablosuSonucu,
-    MultiNakitAkisiTablosuSonucu
-)
+# Multi-ticker models (Phase 2: İş Yatırım Financial Statements)
+# NOTE: These classes are defined in isyatirim sub-module
+try:
+    from .yfinance_models import (
+        MultiFinansalTabloSonucu, MultiKarZararTablosuSonucu,
+        MultiNakitAkisiTablosuSonucu
+    )
+except ImportError:
+    pass
 
 # İş Yatırım Financial Ratios Models
-from borsa_models import (
-    FinansalOranlar, FinansalOranlarSonucu, MultiFinansalOranlarSonucu
-)
+try:
+    from .financial_ratios_models import (
+        FinansalOranlar, FinansalOranlarSonucu, MultiFinansalOranlarSonucu
+    )
+except ImportError:
+    pass
 
 # İş Yatırım Corporate Actions Models (Sermaye Artırımları & Temettü)
-from borsa_models import (
-    SermayeArtirimi, SermayeArtirimlariSonucu, MultiSermayeArtirimlariSonucu,
-    IsyatirimTemettu, IsyatirimTemettuSonucu, MultiIsyatirimTemettuSonucu
-)
+try:
+    from .yfinance_models import (
+        SermayeArtirimi, SermayeArtirimlariSonucu, MultiSermayeArtirimlariSonucu,
+        IsyatirimTemettu, IsyatirimTemettuSonucu, MultiIsyatirimTemettuSonucu
+    )
+except ImportError:
+    pass
 
-# US Stock Models from borsa_models
-from borsa_models import (
-    # Core US models
-    USCompanyInfo, USQuickInfo, USStockDataPoint,
-    USDividend, USStockSplit, USAnalystRating, USPriceTarget,
-    USEarningsDate, USPivotPoints, USTechnicalIndicators,
-    # Result models
-    USCompanySearchResult, USQuickInfoResult, USStockDataResult,
-    USAnalystResult, USDividendResult, USEarningsResult,
-    USTechnicalAnalysisResult, USPivotPointsResult, USSectorInfoResult,
-    # Multi-ticker models
-    MultiUSQuickInfoResult, MultiUSAnalystResult,
-    MultiUSDividendResult, MultiUSEarningsResult,
-    # US Financial Statement models
-    USBalanceSheetResult, USIncomeStatementResult, USCashFlowResult,
-    MultiUSBalanceSheetResult, MultiUSIncomeStatementResult, MultiUSCashFlowResult,
-    # US Index models
-    USIndexInfo, USIndexSearchResult, USIndexDetailResult
-)
+# US Stock Models
+try:
+    from .yfinance_models import (
+        USCompanyInfo, USQuickInfo, USStockDataPoint,
+        USDividend, USStockSplit, USAnalystRating, USPriceTarget,
+        USEarningsDate, USPivotPoints, USTechnicalIndicators,
+        USCompanySearchResult, USQuickInfoResult, USStockDataResult,
+        USAnalystResult, USDividendResult, USEarningsResult,
+        USTechnicalAnalysisResult, USPivotPointsResult, USSectorInfoResult,
+        MultiUSQuickInfoResult, MultiUSAnalystResult,
+        MultiUSDividendResult, MultiUSEarningsResult,
+        USBalanceSheetResult, USIncomeStatementResult, USCashFlowResult,
+        MultiUSBalanceSheetResult, MultiUSIncomeStatementResult, MultiUSCashFlowResult,
+        USIndexInfo, USIndexSearchResult, USIndexDetailResult
+    )
+except ImportError:
+    pass
 
-# US Stock Screener Models from borsa_models
-from borsa_models import (
-    SecurityTypeEnum, PresetScreenEnum, ScreenedSecurity,
-    USScreenerResult, ScreenerPresetInfo, ScreenerPresetsResult, ScreenerFilterDocumentation
-)
+# US Stock Screener Models
+try:
+    from .yfinance_models import (
+        SecurityTypeEnum, PresetScreenEnum, ScreenedSecurity,
+        USScreenerResult, ScreenerPresetInfo, ScreenerPresetsResult, ScreenerFilterDocumentation
+    )
+except ImportError:
+    pass
 
-# BIST Screener Models from borsa_models
-from borsa_models import (
-    BistScreenedStock, BistScreenerResult, BistScreenerPresetInfo,
-    BistScreenerPresetsResult, BistScreenerFilterDocumentation
-)
+# BIST Screener Models
+try:
+    from .yfinance_models import (
+        BistScreenedStock, BistScreenerResult, BistScreenerPresetInfo,
+        BistScreenerPresetsResult, BistScreenerFilterDocumentation
+    )
+except ImportError:
+    pass
 
 # BIST Technical Scanner Models (borsapy TradingView integration)
 # Note: TaramaSonucu from scanner_models is aliased to avoid conflict with borsa_models.TaramaSonucu
