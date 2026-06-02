@@ -29,6 +29,7 @@ dependencies = [
     # Borsa/Financial data
     "yfinance>=0.2.37",
     "pandas>=2.0.0",
+    "borsapy>=0.9.0",
     # PDF & Markdown
     "markitdown[pdf]>=0.1.1",
     # Encryption (ihale)
