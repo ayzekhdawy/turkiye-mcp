@@ -799,23 +799,36 @@ Eğer araç sonucu yoksa genel bilgilendirme yap ama "veriyi şimdi kontrol edem
 Sonuçları tablo veya liste halinde düzenle. Kaynağı belirt."""
 
 TOOL_ROUTING = {
+    # Hukuk — uzun eşleşmeler önce (öncelik sırası önemli)
+    "yargıtay": "search_bedesten_unified", "yargitay": "search_bedesten_unified",
+    "danıştay": "search_bedesten_unified", "danistay": "search_bedesten_unified",
+    "anayasa mahkemesi": "search_anayasa_unified", "anayasa": "search_anayasa_unified",
+    "kik kararı": "search_kik_v2_decisions", "kik": "search_kik_v2_decisions",
+    "rekabet kurumu": "search_rekabet_kurumu", "rekabet": "search_rekabet_kurumu",
+    "sayıştay": "search_sayistay_unified", "sayistay": "search_sayistay_unified",
+    "bddk": "search_bddk_decisions", "bankacılık": "search_bddk_decisions",
+    "kvkk": "search_kvkk_decisions", "kişisel veri": "search_kvkk_decisions",
+    "sigorta tahkim": "search_sigorta_tahkim",
+    "uyuşmazlık": "search_uyusmazlik", "uyusmazlik": "search_uyusmazlik",
+    "emsal karar": "search_emsal", "emsal": "search_emsal",
+    "mahkeme": "search_bedesten_unified", "hukuk": "search_bedesten_unified",
+    "dava": "search_bedesten_unified", "ictihat": "search_bedesten_unified",
+    # Mali
     "asgari ücret": "get_asgari_ucret", "asgari": "get_asgari_ucret",
     "prim": "get_prim_matrahi", "sgk prim": "get_prim_matrahi",
     "resmi gazete": "search_resmi_gazete", "mevzuat": "search_resmi_gazete",
-    "kanun": "search_resmi_gazete", "genelge": "search_resmi_gazete",
+    "genelge": "search_resmi_gazete",
     "sirküler": "search_gib_sirkuler", "vergi": "search_gib_sirkuler",
     "gib": "search_gib_sirkuler", "kdv": "search_gib_sirkuler",
     "e-fatura": "check_efatura_taxpayer", "mükellef": "check_efatura_taxpayer",
+    # İhale
     "ihale": "search_tenders", "kamu ihale": "search_tenders",
     "ilan": "search_ilan_ads", "resmi ilan": "search_ilan_ads",
+    # Borsa
     "borsa": "get_bist_stock", "hisse": "get_bist_stock", "döviz": "get_fx_rates",
     "kripto": "get_crypto", "bitcoin": "get_crypto",
-    "yargıtay": "search_bedesten_unified", "danıştay": "search_bedesten_unified",
-    "anayasa": "search_anayasa_unified", "kik": "search_kik_v2_decisions",
-    "rekabet": "search_rekabet_kurumu", "sayıştay": "search_sayistay_unified",
-    "bddk": "search_bddk_decisions", "kvkk": "search_kvkk_decisions",
-    "sigorta tahkim": "search_sigorta_tahkim", "uyuşmazlık": "search_uyusmazlik",
-    "emsal": "search_emsal", "karar": "search_bedesten_unified",
+    # Genel (en düşük öncelik)
+    "kanun": "search_resmi_gazete", "karar": "search_bedesten_unified",
 }
 
 
@@ -838,9 +851,22 @@ async def _route_and_call(message: str) -> str:
     results = []
     called = set()
 
+    # Arama terimini çıkar — eşleşen keyword'ü mesajdan çıkar
+    def extract_search_term(msg, kw):
+        """Keyword'ü mesajdan çıkarıp arama terimini döndür."""
+        term = msg.lower().replace(kw, "").strip()
+        # Stopword'leri temizle
+        for sw in ["hakkı", "hakki", "kanunu", "kanun", "kararları", "kararlari", "kararı", "karari",
+                    "arasında", "arasında", "hakkında", "hakkinda", "ile", "ve", "için", "icin",
+                    "nedir", "ne kadar", "kaç", "kac", "bul", "ara", "getir", "göster", "goster",
+                    "bak", "söyle", "soyle", "listele", "son", "güncel", "guncel"]:
+            term = term.replace(sw, "").strip()
+        return term[:80] if term else kw
+
     for keyword, tool_name in TOOL_ROUTING.items():
         if keyword in msg_lower and tool_name not in called:
             called.add(tool_name)
+            search_term = extract_search_term(message, keyword)
             try:
                 if tool_name == "get_asgari_ucret":
                     r = await _call_tool(tool_name, yil=2025)
@@ -848,8 +874,8 @@ async def _route_and_call(message: str) -> str:
                     r = await _call_tool(tool_name, yil=2025)
                 elif tool_name == "get_fx_rates":
                     r = await _call_tool(tool_name)
-                elif tool_name in ("search_bedesten_unified",):
-                    r = await _call_tool(tool_name, keyword=msg_lower.split(keyword)[0].strip()[-50:] or keyword, court_types=["YARGITAYKARARI", "DANISTAYKARAR"], page_number=1)
+                elif tool_name == "search_bedesten_unified":
+                    r = await _call_tool(tool_name, keyword=search_term or keyword, court_types=["YARGITAYKARARI", "DANISTAYKARAR"], page_number=1)
                 elif tool_name == "search_anayasa_unified":
                     r = await _call_tool(tool_name, keywords=message[:100], decision_type="bireysel_basvuru", page=1)
                 elif tool_name in ("search_gib_sirkuler",):
@@ -944,8 +970,7 @@ async def chat_endpoint(request):
             resp.raise_for_status()
             data = resp.json()
             reply = data.get("choices", [{}])[0].get("message", {}).get("content", "Yanıt alınamadı.")
-            sources = list({k for k, v in TOOL_ROUTING.items() if k in message.lower() and v in
-                           [t for t, _ in zip(TOOL_ROUTING.values(), TOOL_ROUTING.keys())]})
+            sources = list(called)[:5]
     except httpx.HTTPStatusError as e:
         return JSONResponse({"error": f"LLM hatası: {e.response.status_code}", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits[client_ip])}, status_code=502)
     except Exception as e:
