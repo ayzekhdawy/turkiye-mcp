@@ -43,10 +43,10 @@ production = [
 ]
 
 [project.scripts]
-turkiye-mcp = "server:main"
+turkiye-mcp = "app:main"
 
 [tool.setuptools]
-py-modules = ["server"]
+py-modules = ["app", "server"]
 
 [tool.setuptools.packages.find]
 include = ["*_module", "providers", "providers.*", "models", "models.*", "borsa_models", "borsa_models.*"]
