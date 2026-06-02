@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 import logging
 
-from models.unified_base import (
+from borsa_models.unified_base import (
     MarketType, StatementType, PeriodType, DataType, RatioSetType, ExchangeType
 )
 

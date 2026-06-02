@@ -10,7 +10,7 @@ import pandas as pd
 import datetime
 import asyncio
 
-from models import (
+from borsa_models import (
     FinansalVeriNoktasi, YFinancePeriodEnum, SirketProfiliYFinance,
     AnalistTavsiyesi, AnalistFiyatHedefi, TavsiyeOzeti,
     Temettu, HisseBolunmesi, KurumsalAksiyon, HizliBilgi,

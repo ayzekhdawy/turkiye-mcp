@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from bs4 import BeautifulSoup
 import re
-from models.tcmb_models import (
+from borsa_models.tcmb_models import (
     TcmbEnflasyonSonucu, EnflasyonVerisi, EnflasyonHesaplamaSonucu
 )
 

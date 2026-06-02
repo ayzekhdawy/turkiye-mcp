@@ -9,7 +9,7 @@ from typing import Optional
 from datetime import datetime
 import borsapy as bp
 
-from models import (
+from borsa_models import (
     DovizcomGuncelSonucu, DovizcomDakikalikSonucu, DovizcomArsivSonucu,
     DovizcomVarligi, DovizcomOHLCVarligi
 )

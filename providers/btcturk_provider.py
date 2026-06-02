@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Optional, Dict, Any, Union
-from models import (
+from borsa_models import (
     KriptoExchangeInfoSonucu, KriptoTickerSonucu, KriptoOrderbookSonucu,
     KriptoTradesSonucu, KriptoOHLCSonucu, KriptoKlineSonucu, KriptoTeknikAnalizSonucu,
     TradingPair, Currency, CurrencyOperationBlock, KriptoTicker,

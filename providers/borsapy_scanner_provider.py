@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
 
-from models.scanner_models import (
+from borsa_models.scanner_models import (
     TaramaSonucu,
     TeknikTaramaSonucu,
     TaramaPresetInfo,

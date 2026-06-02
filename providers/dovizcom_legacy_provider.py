@@ -8,7 +8,7 @@ import logging
 import time
 from typing import Dict, Any
 from datetime import datetime
-from models import (
+from borsa_models import (
     DovizcomGuncelSonucu, DovizcomDakikalikSonucu, DovizcomArsivSonucu,
     DovizcomVarligi, DovizcomOHLCVarligi
 )

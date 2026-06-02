@@ -14,7 +14,7 @@ from providers.kap_provider import KAPProvider
 from providers.yfinance_provider import YahooFinanceProvider
 from providers.borsapy_provider import BorsapyProvider
 # from providers.mynet_provider import MynetProvider # Mynet provider is now fully replaced
-from models import (
+from borsa_models import (
     YFinancePeriodEnum,
     SirketAramaSonucu,
     TaramaKriterleri,
@@ -50,7 +50,7 @@ from models import (
     TeknikTaramaSonucu,
     TaramaYardimSonucu,
 )
-from models.tcmb_models import EnflasyonHesaplamaSonucu, TcmbEnflasyonSonucu
+from borsa_models.tcmb_models import EnflasyonHesaplamaSonucu, TcmbEnflasyonSonucu
 
 logger = logging.getLogger(__name__)
 
@@ -1233,7 +1233,7 @@ Detaylı mevzuat için SPK resmi web sitesini ziyaret edin.
         end_date: str = None
     ) -> Dict[str, Any]:
         """Get US stock historical OHLCV data."""
-        from models import YFinancePeriodEnum
+        from borsa_models import YFinancePeriodEnum
 
         # Convert string period to enum if needed
         period_enum = None

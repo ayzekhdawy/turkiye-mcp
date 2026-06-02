@@ -8,7 +8,7 @@ import ssl
 from typing import Dict, Any, Optional, List
 from io import BytesIO
 from markitdown import MarkItDown
-from ihale_models import IlanSearchResponse, IlanAd, IlanAdDetail
+from ihale_module.ihale_models import IlanSearchResponse, IlanAd, IlanAdDetail
 
 
 class IlanClient:

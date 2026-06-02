@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from typing import List, Optional, Dict, Any
 from markitdown import MarkItDown
-from models import (
+from borsa_models import (
     SirketGenelBilgileri, Istirak, Ortak, Yonetici, 
     PiyasaDegeri, BilancoKalemi, MevcutDonem, KarZararKalemi,
     FinansalVeriNoktasi, ZamanAraligiEnum, EndeksBilgisi

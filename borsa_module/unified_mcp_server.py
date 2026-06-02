@@ -25,7 +25,7 @@ from fastmcp.server.middleware.caching import ResponseCachingMiddleware, CallToo
 from pydantic import Field
 
 from providers.market_router import market_router
-from models.unified_base import (
+from borsa_models.unified_base import (
     MarketType, StatementType, PeriodType, DataType, RatioSetType, ExchangeType
 )
 

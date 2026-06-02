@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional, List, Literal
 from datetime import datetime
 from io import BytesIO
 from markitdown import MarkItDown
-from ihale_models import (
+from ihale_module.ihale_models import (
     DIRECT_PROCUREMENT_TYPES,
     DIRECT_PROCUREMENT_STATUSES,
     DIRECT_PROCUREMENT_SCOPES,

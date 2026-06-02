@@ -7,7 +7,7 @@ import httpx
 import logging
 import time
 from typing import Optional, Dict, Any
-from models import (
+from borsa_models import (
     CoinbaseExchangeInfoSonucu, CoinbaseTickerSonucu, CoinbaseOrderbookSonucu,
     CoinbaseTradesSonucu, CoinbaseOHLCSonucu, CoinbaseServerTimeSonucu, CoinbaseTeknikAnalizSonucu,
     CoinbaseProduct, CoinbaseCurrency, CoinbaseTicker,

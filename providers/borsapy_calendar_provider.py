@@ -9,7 +9,7 @@ from datetime import datetime
 
 import borsapy as bp
 
-from models import (
+from borsa_models import (
     EkonomikTakvimSonucu, EkonomikOlay, EkonomikOlayDetayi
 )
 
