@@ -11,10 +11,13 @@ Railway deployment için ASGI uygulaması:
 import os
 import json
 import logging
+import time
+from collections import defaultdict
 from datetime import date
 from typing import Optional, List
 from datetime import date, timedelta
 
+import httpx
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 from starlette.responses import HTMLResponse, JSONResponse
@@ -666,19 +669,33 @@ KYB              — Kanun Yararına Bozma</div>
     </div>
   </div>
 
+  <div class="section">
+    <h2>💬 Soru Sor (AI Asistan)</h2>
+    <div class="card" id="chat-section">
+      <p style="color:#94a3b8;margin-bottom:1rem;">Türk hukuk, mali, ihale ve piyasa verileri hakkında soru sorun. MCP araçları ile veri toplanır, OpenRouter AI ile yanıtlanır.</p>
+      <div id="chat-messages" style="max-height:400px;overflow-y:auto;margin-bottom:1rem;padding:0.5rem;background:#0f172a;border-radius:8px;min-height:100px;"></div>
+      <div style="display:flex;gap:0.5rem;">
+        <input type="text" id="chat-input" placeholder='Örnek: "2025 asgari ücret ne kadar?" veya "Yargıtay mülkiyet kararları"' style="flex:1;padding:0.75rem;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:0.95rem;" maxlength="500" />
+        <button id="chat-btn" onclick="sendChat()" style="padding:0.75rem 1.5rem;border-radius:8px;border:none;background:linear-gradient(135deg,#e11d48,#f59e0b);color:#fff;font-weight:600;cursor:pointer;font-size:0.95rem;">Gönder</button>
+      </div>
+      <div id="chat-limit" style="margin-top:0.5rem;font-size:0.8rem;color:#64748b;"></div>
+    </div>
+  </div>
+
   <footer>
     <p>🇹🇷 Türkiye MCP Server v1.0.0 — <a href="https://github.com/ayzekhdawy/turkiye-mcp">GitHub</a></p>
   </footer>
 </div>
 
 <script>
-(async function() {
-  const base = window.location.origin;
-  document.getElementById('sse-url').textContent = base + '/sse';
-  document.getElementById('sse-url-inline').textContent = base;
-  document.getElementById('sse-url-cli').textContent = base;
-  document.getElementById('sse-url-cursor').textContent = base;
+const base = window.location.origin;
+document.getElementById('sse-url').textContent = base + '/sse';
+document.getElementById('sse-url-inline').textContent = base;
+document.getElementById('sse-url-cli').textContent = base;
+document.getElementById('sse-url-cursor').textContent = base;
 
+// Module status
+(async function() {
   try {
     const res = await fetch('/health');
     const data = await res.json();
@@ -696,6 +713,56 @@ KYB              — Kanun Yararına Bozma</div>
     document.getElementById('status-grid').innerHTML = '<div class="status-fail">Sunucu durumu alınamadı</div>';
   }
 })();
+
+// Chat
+let chatRemaining = null;
+const chatInput = document.getElementById('chat-input');
+const chatBtn = document.getElementById('chat-btn');
+const chatMessages = document.getElementById('chat-messages');
+const chatLimit = document.getElementById('chat-limit');
+
+function addMsg(role, text) {
+  const div = document.createElement('div');
+  div.style.cssText = 'margin:0.5rem 0;padding:0.75rem;border-radius:8px;white-space:pre-wrap;font-size:0.9rem;max-width:90%;' + (role==='user' ? 'background:#1e3a5f;margin-left:auto;text-align:right;' : 'background:#1a2744;margin-right:auto;');
+  div.textContent = text;
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function sendChat() {
+  const msg = chatInput.value.trim();
+  if (!msg) return;
+  chatInput.value = '';
+  addMsg('user', msg);
+  chatBtn.disabled = true;
+  chatBtn.textContent = '...';
+  addMsg('system', '⏳ Veriler alınıyor...');
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({message: msg})
+    });
+    const data = await res.json();
+    chatMessages.lastChild.remove(); // remove loading
+    if (data.error) {
+      addMsg('assistant', '❌ ' + data.error);
+    } else {
+      addMsg('assistant', data.response);
+    }
+    chatRemaining = data.remaining;
+    chatLimit.textContent = data.remaining !== undefined ? `Kalan istek hakkı: ${data.remaining}/${10}` : '';
+  } catch(e) {
+    chatMessages.lastChild.remove();
+    addMsg('assistant', '❌ Bağlantı hatası.');
+  }
+  chatBtn.disabled = false;
+  chatBtn.textContent = 'Gönder';
+}
+
+chatInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') sendChat();
+});
 </script>
 </body>
 </html>"""
@@ -717,6 +784,178 @@ async def health_endpoint(request):
 
 
 # ============================================================
+# CHAT ENDPOINT — OpenRouter + MCP araçları
+# ============================================================
+
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+CHAT_MODEL = "openai/gpt-4o-mini"
+RATE_LIMIT_PER_IP = 10  # IP başına günlük istek limiti
+ip_rate_limits: dict[str, list[float]] = defaultdict(list)
+
+SYSTEM_PROMPT = """Sen Türkiye MCP asistanısın. Türk hukuk, mali, ihale ve piyasa verileri konusunda uzmansın.
+Kullanıcıya Türkçe yanıt ver. Eldeki MCP araç sonuçlarını kullanarak doğru ve özlü cevaplar ver.
+Eğer araç sonucu yoksa genel bilgilendirme yap ama "veriyi şimdi kontrol edemiyorum" diye belirt.
+Sonuçları tablo veya liste halinde düzenle. Kaynağı belirt."""
+
+TOOL_ROUTING = {
+    "asgari ücret": "get_asgari_ucret", "asgari": "get_asgari_ucret",
+    "prim": "get_prim_matrahi", "sgk prim": "get_prim_matrahi",
+    "resmi gazete": "search_resmi_gazete", "mevzuat": "search_resmi_gazete",
+    "kanun": "search_resmi_gazete", "genelge": "search_resmi_gazete",
+    "sirküler": "search_gib_sirkuler", "vergi": "search_gib_sirkuler",
+    "gib": "search_gib_sirkuler", "kdv": "search_gib_sirkuler",
+    "e-fatura": "check_efatura_taxpayer", "mükellef": "check_efatura_taxpayer",
+    "ihale": "search_tenders", "kamu ihale": "search_tenders",
+    "ilan": "search_ilan_ads", "resmi ilan": "search_ilan_ads",
+    "borsa": "get_bist_stock", "hisse": "get_bist_stock", "döviz": "get_fx_rates",
+    "kripto": "get_crypto", "bitcoin": "get_crypto",
+    "yargıtay": "search_bedesten_unified", "danıştay": "search_bedesten_unified",
+    "anayasa": "search_anayasa_unified", "kik": "search_kik_v2_decisions",
+    "rekabet": "search_rekabet_kurumu", "sayıştay": "search_sayistay_unified",
+    "bddk": "search_bddk_decisions", "kvkk": "search_kvkk_decisions",
+    "sigorta tahkim": "search_sigorta_tahkim", "uyuşmazlık": "search_uyusmazlik",
+    "emsal": "search_emsal", "karar": "search_bedesten_unified",
+}
+
+
+async def _call_tool(tool_name: str, **kwargs) -> str:
+    """MCP araç fonksiyonunu doğrudan çağır."""
+    import asyncio
+    try:
+        # Global değişkenlerden araç fonksiyonunu bul
+        func = globals().get(tool_name)
+        if func and callable(func):
+            return await func(**kwargs)
+    except Exception as e:
+        return f"[Hata: {e}]"
+    return "[Araç bulunamadı]"
+
+
+async def _route_and_call(message: str) -> str:
+    """Kullanıcı mesajına göre ilgili MCP araçlarını çağır."""
+    msg_lower = message.lower()
+    results = []
+    called = set()
+
+    for keyword, tool_name in TOOL_ROUTING.items():
+        if keyword in msg_lower and tool_name not in called:
+            called.add(tool_name)
+            try:
+                if tool_name == "get_asgari_ucret":
+                    r = await _call_tool(tool_name, yil=2025)
+                elif tool_name == "get_prim_matrahi":
+                    r = await _call_tool(tool_name, yil=2025)
+                elif tool_name == "get_fx_rates":
+                    r = await _call_tool(tool_name)
+                elif tool_name in ("search_bedesten_unified",):
+                    r = await _call_tool(tool_name, keyword=msg_lower.split(keyword)[0].strip()[-50:] or keyword, court_types=["YARGITAYKARARI", "DANISTAYKARAR"], page_number=1)
+                elif tool_name == "search_anayasa_unified":
+                    r = await _call_tool(tool_name, keywords=message[:100], decision_type="bireysel_basvuru", page=1)
+                elif tool_name in ("search_gib_sirkuler",):
+                    r = await _call_tool(tool_name, anahtar_kelime=message[:60])
+                elif tool_name in ("search_resmi_gazete",):
+                    r = await _call_tool(tool_name, anahtar_kelime=message[:60])
+                elif tool_name in ("search_tenders",):
+                    r = await _call_tool(tool_name, search_text=message[:60])
+                elif tool_name in ("search_ilan_ads",):
+                    r = await _call_tool(tool_name, search_text=message[:60])
+                elif tool_name in ("get_bist_stock",):
+                    # Hisse sembolünü çıkarmaya çalış
+                    words = message.upper().split()
+                    symbol = next((w for w in words if w.isalpha() and len(w) <= 5 and w in
+                        ["THYAO","GARAN","AKBNK","ISCTR","SAHOL","EREGL","FROTO","TUPRS",
+                         "KCHOL","ASELS","ENKAI","BIMAS","PGSUS","TKFEN","YKBNK","CCOLA"]), None)
+                    if symbol:
+                        r = await _call_tool(tool_name, symbol=symbol)
+                    else:
+                        r = "[Hisse sembolü bulunamadı. Örnek: THYAO, GARAN, AKBNK]"
+                elif tool_name in ("get_crypto",):
+                    words = message.upper().split()
+                    symbol = next((w for w in words if w in ["BTC","ETH","USDT","BNB","XRP","DOGE","SOL"]), None) or "BTC"
+                    r = await _call_tool(tool_name, symbol=symbol)
+                elif tool_name == "check_efatura_taxpayer":
+                    import re
+                    nums = re.findall(r'\b\d{10,11}\b', message)
+                    if nums:
+                        r = await _call_tool(tool_name, vergi_kimlik_no=nums[0])
+                    else:
+                        r = "[VKN/TCKN bulunamadı. 10 veya 11 haneli numara girin.]"
+                elif tool_name in ("search_kik_v2_decisions",):
+                    r = await _call_tool(tool_name, decision_type="uyusmazlik", keyword=message[:60])
+                elif tool_name in ("search_rekabet_kurumu",):
+                    r = await _call_tool(tool_name, keyword=message[:60])
+                elif tool_name in ("search_sayistay_unified",):
+                    r = await _call_tool(tool_name, decision_type="genel_kurul", keyword=message[:60])
+                elif tool_name in ("search_bddk_decisions", "search_kvkk_decisions", "search_sigorta_tahkim"):
+                    r = await _call_tool(tool_name, keyword=message[:60])
+                elif tool_name in ("search_uyusmazlik",):
+                    r = await _call_tool(tool_name, keyword=message[:60])
+                elif tool_name in ("search_emsal",):
+                    r = await _call_tool(tool_name, keyword=message[:60])
+                else:
+                    continue
+                results.append(f"### {tool_name}\n{r}\n")
+            except Exception as e:
+                results.append(f"### {tool_name}\n[Hata: {e}]\n")
+
+    return "\n---\n".join(results) if results else ""
+
+
+async def chat_endpoint(request):
+    """Chat endpoint — OpenRouter + MCP araçları ile yanıt üretir."""
+    if not OPENROUTER_API_KEY:
+        return JSONResponse({"error": "Chat özelliği yapılandırılmamış. OPENROUTER_API_KEY ortam değişkeni gerekli."}, status_code=503)
+
+    # IP rate limiting
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    day_ago = now - 86400
+    ip_rate_limits[client_ip] = [t for t in ip_rate_limits[client_ip] if t > day_ago]
+    if len(ip_rate_limits[client_ip]) >= RATE_LIMIT_PER_IP:
+        return JSONResponse({"error": f"Günlük limit aşıldı ({RATE_LIMIT_PER_IP} istek/IP). Yarın tekrar deneyin.", "remaining": 0}, status_code=429)
+    ip_rate_limits[client_ip].append(now)
+
+    try:
+        body = await request.json()
+        message = body.get("message", "").strip()[:500]
+        if not message:
+            return JSONResponse({"error": "Mesaj boş olamaz."}, status_code=400)
+    except Exception:
+        return JSONResponse({"error": "Geçersiz istek."}, status_code=400)
+
+    # MCP araçlarını çağır
+    tool_context = await _route_and_call(message)
+
+    # OpenRouter'a gönder
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if tool_context:
+        messages.append({"role": "system", "content": f"MCP araç sonuçları:\n\n{tool_context}"})
+    messages.append({"role": "user", "content": message})
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                OPENROUTER_API_URL,
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json",
+                          "HTTP-Referer": "https://turkiye-mcp.up.railway.app"},
+                json={"model": CHAT_MODEL, "messages": messages, "max_tokens": 1024},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            reply = data.get("choices", [{}])[0].get("message", {}).get("content", "Yanıt alınamadı.")
+            sources = list({k for k, v in TOOL_ROUTING.items() if k in message.lower() and v in
+                           [t for t, _ in zip(TOOL_ROUTING.values(), TOOL_ROUTING.keys())]})
+    except httpx.HTTPStatusError as e:
+        return JSONResponse({"error": f"LLM hatası: {e.response.status_code}", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits[client_ip])}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"error": f"Beklenmeyen hata: {str(e)}"}, status_code=500)
+
+    remaining = RATE_LIMIT_PER_IP - len(ip_rate_limits[client_ip])
+    return JSONResponse({"response": reply, "sources": sources[:5], "remaining": remaining})
+
+
+# ============================================================
 # ASGI APPLICATION
 # ============================================================
 
@@ -733,6 +972,7 @@ starlette_app = Starlette(
     routes=[
         Route("/", homepage),
         Route("/health", health_endpoint),
+        Route("/api/chat", chat_endpoint, methods=["POST"]),
         Mount("/", app=mcp_asgi),
     ],
     lifespan=mcp_asgi.lifespan if hasattr(mcp_asgi, 'lifespan') else None,
