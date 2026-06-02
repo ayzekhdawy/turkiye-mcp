@@ -55,7 +55,10 @@ hidden_imports = [
     "pydantic",
     "pydantic.deprecated",
     "pydantic.deprecated.decorator",
-    # PDF
+    # PDF & OCR
+    "pymupdf",
+    "fitz",
+    "pymupdf._fitz",
     "pypdf",
     "markitdown",
     # Feeds
@@ -138,6 +141,13 @@ hidden_imports = [
     "borsa_models.yfinance_models",
     "borsa_models.tcmb_models",
     "borsa_models.crypto_models",
+    # UYAP EYP/UDF
+    "uyap_module",
+    "uyap_module.parser",
+    # Keyring
+    "keyring",
+    "keyring.backends",
+    "keyring.backends.Windows",
     # GUI (optional)
     "webview",
     "pystray",

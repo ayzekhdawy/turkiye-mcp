@@ -17,3 +17,4 @@ logs/
 .pytest_cache/
 *.baktest_document.pdf
 test_document.pdf
+test_document.pdf

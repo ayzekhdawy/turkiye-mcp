@@ -507,250 +507,283 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🇹🇷 Türkiye MCP Server</title>
+<title>Turkiye MCP</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.6; }
-  .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1rem; }
-  header { text-align: center; padding: 3rem 0 2rem; border-bottom: 1px solid #1e293b; margin-bottom: 2rem; }
-  header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
-  header h1 span { background: linear-gradient(135deg, #e11d48, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-  header p { color: #94a3b8; font-size: 1.1rem; }
-  .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600; margin: 0.25rem; }
-  .badge-green { background: #064e3b; color: #34d399; }
-  .badge-red { background: #450a0a; color: #f87171; }
-  .badge-blue { background: #1e3a5f; color: #60a5fa; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
-  .card { background: #1e293b; border-radius: 12px; padding: 1.5rem; border: 1px solid #334155; }
-  .card h2 { font-size: 1.2rem; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
-  .card ul { list-style: none; }
-  .card li { padding: 0.35rem 0; padding-left: 1.5rem; position: relative; color: #cbd5e1; font-size: 0.9rem; }
-  .card li::before { content: '→'; position: absolute; left: 0; color: #475569; }
-  .code-block { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 1rem; margin: 1rem 0; font-family: 'Fira Code', Consolas, monospace; font-size: 0.85rem; overflow-x: auto; white-space: pre; color: #a5f3fc; }
-  .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.5rem; margin: 1rem 0; }
-  .status-item { padding: 0.5rem 0.75rem; border-radius: 8px; font-size: 0.85rem; font-weight: 500; }
-  .status-ok { background: #064e3b; color: #34d399; }
-  .status-fail { background: #450a0a; color: #f87171; }
-  .section { margin-bottom: 2.5rem; }
-  .section h2 { font-size: 1.5rem; margin-bottom: 1rem; color: #f1f5f9; border-bottom: 1px solid #334155; padding-bottom: 0.5rem; }
-  .section h3 { font-size: 1.1rem; margin: 1rem 0 0.5rem; color: #93c5fd; }
-  .section p { color: #94a3b8; margin-bottom: 0.75rem; }
-  footer { text-align: center; padding: 2rem 0; border-top: 1px solid #1e293b; color: #64748b; font-size: 0.85rem; }
-  a { color: #38bdf8; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .emoji { font-style: normal; }
+:root {
+  --bg-primary: #0a0f1a;
+  --bg-secondary: #111827;
+  --bg-card: #1a2236;
+  --bg-card-hover: #1e2a42;
+  --bg-input: #0d1322;
+  --border: #2a3548;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --sidebar-width: 280px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg-primary); color: var(--text-primary); height: 100vh; overflow: hidden; }
+
+/* Layout */
+.app-container { display: flex; height: 100vh; }
+
+/* Sidebar */
+.sidebar {
+  width: var(--sidebar-width); min-width: var(--sidebar-width);
+  background: var(--bg-secondary); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.sidebar-header {
+  padding: 1rem; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 0.75rem;
+}
+.sidebar-header h1 {
+  font-size: 1.1rem; font-weight: 700;
+  background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.sidebar-header .logo { font-size: 1.5rem; }
+
+.new-chat-btn {
+  margin: 0.75rem; padding: 0.6rem 1rem;
+  background: var(--accent-gradient); color: #fff; border: none; border-radius: 10px;
+  font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;
+}
+.new-chat-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
+
+.chat-list { flex: 1; overflow-y: auto; padding: 0.5rem; }
+.chat-list::-webkit-scrollbar { width: 4px; }
+.chat-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.chat-item {
+  padding: 0.6rem 0.75rem; border-radius: 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.85rem; color: var(--text-secondary); transition: all 0.15s;
+  margin-bottom: 2px;
+}
+.chat-item:hover { background: var(--bg-card); color: var(--text-primary); }
+.chat-item.active { background: var(--bg-card); color: var(--text-primary); border-left: 3px solid var(--accent); }
+.chat-item .icon { font-size: 0.9rem; opacity: 0.7; }
+.chat-item .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-item .delete-chat { opacity: 0; cursor: pointer; font-size: 0.75rem; }
+.chat-item:hover .delete-chat { opacity: 0.5; }
+.chat-item:hover .delete-chat:hover { opacity: 1; }
+
+.chat-date { padding: 0.5rem 0.75rem; font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Sidebar footer - Modules */
+.sidebar-footer { border-top: 1px solid var(--border); padding: 0.75rem; max-height: 200px; overflow-y: auto; }
+.sidebar-footer h3 { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+.module-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+.module-item { font-size: 0.7rem; padding: 2px 4px; border-radius: 4px; color: var(--text-muted); }
+.module-item.ok { color: var(--success); }
+.module-item.fail { color: var(--danger); }
+
+/* Main Area */
+.main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Top Bar */
+.top-bar {
+  padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 1rem; background: var(--bg-secondary);
+}
+.provider-select {
+  padding: 0.4rem 0.75rem; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-input); color: var(--text-primary); font-size: 0.85rem; min-width: 140px;
+}
+.model-select {
+  padding: 0.4rem 0.75rem; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-input); color: var(--text-primary); font-size: 0.85rem; min-width: 180px;
+}
+.api-key-input {
+  padding: 0.4rem 0.75rem; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-input); color: var(--text-primary); font-size: 0.85rem; width: 200px;
+}
+.save-btn {
+  padding: 0.4rem 1rem; border-radius: 8px; border: none;
+  background: var(--success); color: #fff; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+}
+.llm-status {
+  padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600;
+}
+.llm-status.connected { background: #064e3b; color: #34d399; }
+.llm-status.disconnected { background: #450a0a; color: #f87171; }
+.llm-status.local { background: #1e3a5f; color: #60a5fa; }
+
+/* Chat Area */
+.chat-area { flex: 1; overflow-y: auto; padding: 1.5rem; }
+.chat-area::-webkit-scrollbar { width: 6px; }
+.chat-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+
+.message { margin-bottom: 1rem; display: flex; gap: 0.75rem; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.message.user { justify-content: flex-end; }
+.message.user .bubble { background: var(--accent); color: #fff; border-radius: 16px 16px 4px 16px; max-width: 70%; }
+.message.assistant .bubble { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px 16px 16px 4px; max-width: 80%; }
+.message.system .bubble { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; color: var(--text-muted); font-style: italic; max-width: 60%; text-align: center; margin: 0 auto; }
+.bubble { padding: 0.75rem 1rem; font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; }
+.bubble code { background: rgba(255,255,255,0.1); padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.85em; }
+.bubble strong { color: var(--accent-hover); }
+
+/* Sources */
+.sources { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
+.source-tag { background: rgba(99,102,241,0.2); color: var(--accent-hover); padding: 0.15rem 0.5rem; border-radius: 9999px; font-size: 0.7rem; }
+
+/* Input Area */
+.input-area {
+  padding: 1rem 1.5rem; border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+.input-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+.chat-input {
+  flex: 1; padding: 0.75rem 1rem; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--bg-input); color: var(--text-primary); font-size: 0.95rem; resize: none;
+  min-height: 44px; max-height: 120px; transition: border-color 0.2s;
+}
+.chat-input:focus { outline: none; border-color: var(--accent); }
+.chat-input::placeholder { color: var(--text-muted); }
+
+.send-btn {
+  padding: 0.75rem 1.25rem; border-radius: 12px; border: none;
+  background: var(--accent-gradient); color: #fff; font-size: 1.1rem;
+  cursor: pointer; transition: all 0.2s; display: flex; align-items: center;
+}
+.send-btn:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
+.send-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.upload-btn {
+  padding: 0.75rem; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text-secondary); font-size: 1.1rem;
+  cursor: pointer; transition: all 0.2s;
+}
+.upload-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+
+.input-footer { display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); }
+
+/* File Upload Overlay */
+.file-drop-overlay {
+  display: none; position: fixed; inset: 0; z-index: 1000;
+  background: rgba(99,102,241,0.1); border: 3px dashed var(--accent);
+  backdrop-filter: blur(4px);
+  justify-content: center; align-items: center; font-size: 1.5rem; color: var(--accent);
+}
+.file-drop-overlay.active { display: flex; }
+
+/* Welcome Screen */
+.welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 2rem; }
+.welcome h2 { font-size: 2rem; margin-bottom: 0.5rem; background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.welcome p { color: var(--text-secondary); max-width: 500px; margin-bottom: 1.5rem; }
+.quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; max-width: 600px; width: 100%; }
+.quick-action {
+  padding: 1rem; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--bg-card); cursor: pointer; transition: all 0.2s; text-align: left;
+}
+.quick-action:hover { border-color: var(--accent); background: var(--bg-card-hover); transform: translateY(-2px); }
+.quick-action .qa-icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
+.quick-action .qa-title { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
+.quick-action .qa-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sidebar { width: 60px; min-width: 60px; }
+  .sidebar .chat-item .title, .sidebar .new-chat-btn span, .sidebar-footer { display: none; }
+  .sidebar-header h1 { display: none; }
+  .api-key-input, .model-select { display: none; }
+}
 </style>
 </head>
 <body>
-<div class="container">
-  <header>
-    <h1><span>🇹🇷 Türkiye MCP Server</span></h1>
-    <p>Türkiye Hukuk, Mali, İhale ve Piyasa Verileri — Birleştirilmiş MCP Sunucusu</p>
-    <div style="margin-top:1rem">
-      <span class="badge badge-green">MCP Protocol</span>
-      <span class="badge badge-blue">SSE Transport</span>
-      <span class="badge badge-green">v1.0.0</span>
+<div class="app-container">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#127479;&#127480;</span>
+      <h1>Turkiye MCP</h1>
     </div>
-  </header>
-
-  <div class="section">
-    <h2>📡 Bağlantı</h2>
-    <div class="card">
-      <h2>SSE Endpoint</h2>
-      <div class="code-block" id="sse-url">Yükleniyor...</div>
-      <h3>Claude Desktop</h3>
-      <div class="code-block">{
-  "mcpServers": {
-    "turkiye": {
-      "url": "<span id="sse-url-inline">...</span>/sse"
-    }
-  }
-}</div>
-      <h3>Claude Code (CLI)</h3>
-      <div class="code-block">claude mcp add turkiye --transport sse <span id="sse-url-cli">...</span>/sse</div>
-      <h3>Cursor / VS Code</h3>
-      <div class="code-block">{
-  "mcp": {
-    "servers": {
-      "turkiye": {
-        "url": "<span id="sse-url-cursor">...</span>/sse"
-      }
-    }
-  }
-}</div>
+    <button class="new-chat-btn" onclick="newChat()">&#10010; <span>Yeni Sohbet</span></button>
+    <div class="chat-list" id="chat-list"></div>
+    <div class="sidebar-footer">
+      <h3>Moduller</h3>
+      <div class="module-grid" id="module-grid"></div>
     </div>
   </div>
 
-  <div class="section">
-    <h2>🩺 Modül Durumu</h2>
-    <div class="status-grid" id="status-grid">Yükleniyor...</div>
-  </div>
-
-  <div class="grid">
-    <div class="card">
-      <h2>⚖️ Yargı (Hukuk)</h2>
-      <ul>
-        <li>search_bedesten_unified — Birden fazla mahkeme arama</li>
-        <li>get_bedesten_document — Karar metni getirme</li>
-        <li>search_anayasa_unified — Anayasa Mahkemesi</li>
-        <li>search_kik_v2_decisions — KİK kararları</li>
-        <li>search_rekabet_kurumu — Rekabet Kurumu</li>
-        <li>search_sayistay_unified — Sayıştay</li>
-        <li>search_kvkk_decisions — KVKK</li>
-        <li>search_bddk_decisions — BDDK</li>
-        <li>search_sigorta_tahkim — Sigorta Tahkim</li>
-        <li>search_uyusmazlik — Uyuşmazlık Mahkemesi</li>
-        <li>search_emsal — EMSAL (UYAP Örnek)</li>
-      </ul>
+  <!-- Main Area -->
+  <div class="main-area">
+    <!-- Top Bar -->
+    <div class="top-bar">
+      <select class="provider-select" id="llm-provider" onchange="onProviderChange()">
+        <option value="openrouter">OpenRouter</option>
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic</option>
+        <option value="gemini">Google Gemini</option>
+        <option value="ollama">Ollama (Yerel)</option>
+      </select>
+      <select class="model-select" id="llm-model"></select>
+      <input type="password" class="api-key-input" id="llm-api-key" placeholder="API anahtari..." />
+      <button class="save-btn" onclick="saveConfig()">Kaydet</button>
+      <span class="llm-status disconnected" id="llm-status-badge">API Key Gerekli</span>
     </div>
 
-    <div class="card">
-      <h2>💰 Mali Müşavir</h2>
-      <ul>
-        <li>search_resmi_gazete — Resmi Gazete arama</li>
-        <li>get_daily_bulletin — Günlük bülten</li>
-        <li>get_recent_mali_changes — Son mali değişiklikler</li>
-        <li>search_gib_sirkuler — GİB sirküler arama</li>
-        <li>get_tax_calendar — Vergi takvimi</li>
-        <li>check_efatura_taxpayer — e-Fatura sorgulama</li>
-        <li>get_asgari_ucret — Asgari ücret</li>
-        <li>get_prim_matrahi — SGK prim oranları</li>
-        <li>get_turmob_pratik_bilgiler — TÜRMOB bilgileri</li>
-        <li>get_ismmmo_pratik_bilgiler — İSMMMO bilgileri</li>
-      </ul>
-    </div>
-
-    <div class="card">
-      <h2>🏗️ İhale</h2>
-      <ul>
-        <li>search_tenders — Kamu ihale arama (EKAP v2)</li>
-        <li>get_recent_tenders — Son ihaleler</li>
-        <li>search_ilan_ads — Resmi ilan arama</li>
-      </ul>
-    </div>
-
-    <div class="card">
-      <h2>📈 Borsa</h2>
-      <ul>
-        <li>get_bist_stock — BIST hisse verileri</li>
-        <li>get_fx_rates — Döviz kurları</li>
-        <li>get_crypto — Kripto para verileri</li>
-      </ul>
-    </div>
-  </div>
-
-  <div class="section">
-    <h2>📖 Kullanım Kılavuzu</h2>
-    <div class="card">
-      <h3>Örnek Sorgular (Claude ile)</h3>
-      <div class="code-block">"2025 asgari ücret ne kadar?"
-"Yargıtay 'mülkiyet hakkı' kararlarını ara"
-"Son 7 günde yayımlanan mali belgeler"
-"Ankara'daki aktif ihaleler"
-"BIST THYAO hisse verisi"
-"GİB vergi sirküleri 'KDV' ara"
-"e-Fatura 1234567890 mükellef mi?"
-"KİK uyuşmazlık kararlarını listele"
-"Bugünkü döviz kurları"</div>
-      <h3>Bedesten Mahkeme Türleri</h3>
-      <div class="code-block">YARGITAYKARARI    — Yargıtay (Temyiz)
-DANISTAYKARAR    — Danıştay (İdari)
-YERELHUKUK       — Yerel Hukuk Mahkemeleri
-ISTINAFHUKUK     — İstinaf Mahkemeleri
-KYB              — Kanun Yararına Bozma</div>
-      <h3>İhale Türleri</h3>
-      <div class="code-block">1 = Mal (Goods/Hizmet)
-2 = Yapım (Construction)
-3 = Hizmet (Service)
-4 = Danışmanlık (Consultancy)</div>
-    </div>
-  </div>
-
-  <div class="section">
-    <h2>🔗 Kaynaklar</h2>
-    <div class="card">
-      <ul style="list-style:none; padding:0;">
-        <li style="margin-bottom:0.5rem">📦 <a href="https://github.com/ayzekhdawy/turkiye-mcp">GitHub Repository</a></li>
-        <li style="margin-bottom:0.5rem">⚖️ <a href="https://github.com/saidsurucu/yargi-mcp">yargi-mcp</a> — Türk hukuk veritabanları</li>
-        <li style="margin-bottom:0.5rem">📋 <a href="https://github.com/saidsurucu/mevzuat-mcp">mevzuat-mcp</a> — Mevzuat Bilgi Sistemi</li>
-        <li style="margin-bottom:0.5rem">🏗️ <a href="https://github.com/saidsurucu/ihale-mcp">ihale-mcp</a> — Kamu ihale arama</li>
-        <li style="margin-bottom:0.5rem">📈 <a href="https://github.com/saidsurucu/borsa-mcp">borsa-mcp</a> — Borsa verileri</li>
-        <li style="margin-bottom:0.5rem">💰 <a href="https://github.com/ayzekhdawy/musavir-mcp">musavir-mcp</a> — Mali müşavir araçları</li>
-      </ul>
-    </div>
-  </div>
-
-  <div class="section">
-    <h2>📄 Belge Yükle</h2>
-    <div class="card" id="pdf-section">
-      <p style="color:#94a3b8;margin-bottom:1rem;">PDF veya UYAP EYP/UDF dosyasi yukleyin. Belge metni cikarilir, taraflar ve hukuki referans numaralari otomatik tespit edilir.</p>
-      <div id="pdf-drop-zone" style="border:2px dashed #334155;border-radius:12px;padding:2rem;text-align:center;cursor:pointer;transition:border-color 0.3s,background 0.3s;" onmouseover="this.style.borderColor='#60a5fa'" onmouseout="this.style.borderColor='#334155'" onclick="document.getElementById('pdf-file-input').click()">
-        <div style="font-size:2.5rem;margin-bottom:0.5rem;">📁</div>
-        <div style="color:#94a3b8;font-size:0.95rem;">PDF veya EYP/UDF dosyasi surukleyip birakin veya tiklayin</div>
-        <div style="color:#64748b;font-size:0.8rem;margin-top:0.25rem;">Desteklenen formatlar: .pdf, .eyp, .udf | Maks 50MB</div>
-        <input type="file" id="pdf-file-input" accept=".pdf,.eyp,.udf" style="display:none;" onchange="uploadPdf(this.files[0])" />
-      </div>
-      <div id="pdf-progress" style="display:none;margin-top:1rem;padding:0.75rem;background:#1a2744;border-radius:8px;">
-        <div style="color:#60a5fa;">Yukleniyor...</div>
-        <div style="height:4px;background:#334155;border-radius:2px;margin-top:0.5rem;"><div id="pdf-progress-bar" style="height:100%;background:linear-gradient(135deg,#e11d48,#f59e0b);border-radius:2px;width:0%;transition:width 0.3s;"></div></div>
-      </div>
-      <div id="pdf-result" style="display:none;margin-top:1rem;"></div>
-      <div id="pdf-refs" style="display:none;margin-top:1rem;"></div>
-    </div>
-  </div>
-
-  <div class="section">
-    <h2>💬 Soru Sor (AI Asistan)</h2>
-    <div class="card" id="chat-section">
-      <!-- LLM Yapilandirma Paneli -->
-      <div id="llm-config" style="margin-bottom:1rem;padding:1rem;background:#0f172a;border-radius:8px;border:1px solid #334155;">
-        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
-          <span style="font-size:1.1rem;font-weight:600;color:#f1f5f9;">🤖 AI Yapılandırma</span>
-          <span id="llm-status-badge" style="padding:0.15rem 0.5rem;border-radius:9999px;font-size:0.75rem;font-weight:600;background:#450a0a;color:#f87171;">API Key Gerekli</span>
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">
-          <select id="llm-provider" onchange="onProviderChange()" style="padding:0.5rem;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:0.9rem;min-width:160px;">
-            <option value="openrouter">OpenRouter</option>
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="gemini">Google Gemini</option>
-            <option value="ollama">Ollama (Yerel)</option>
-          </select>
-          <select id="llm-model" style="padding:0.5rem;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:0.9rem;min-width:180px;">
-          </select>
-        </div>
-        <div id="api-key-row" style="display:flex;gap:0.5rem;">
-          <input type="password" id="llm-api-key" placeholder="API anahtarinizi girin..." style="flex:1;padding:0.5rem;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:0.9rem;" />
-          <button onclick="saveConfig()" style="padding:0.5rem 1rem;border-radius:6px;border:none;background:#059669;color:#fff;font-weight:600;cursor:pointer;font-size:0.85rem;">Kaydet</button>
-        </div>
-        <div id="ollama-info" style="display:none;margin-top:0.5rem;font-size:0.85rem;color:#94a3b8;">
-          Ollama yerel LLM kullanimi icin Ollama'in calistigindan emin olun: <code style="background:#334155;padding:0.15rem 0.35rem;border-radius:4px;">ollama serve</code>
+    <!-- Chat Area -->
+    <div class="chat-area" id="chat-area">
+      <!-- Welcome Screen -->
+      <div class="welcome" id="welcome-screen">
+        <h2>Turkiye MCP Asistani</h2>
+        <p>Turk hukuk, mali, ihale ve piyasa verileri hakkinda soru sorun. PDF veya EYP/UDF dosyasi yukleyebilirsiniz.</p>
+        <div class="quick-actions">
+          <div class="quick-action" onclick="sendQuick('2025 asgari ucret ne kadar?')">
+            <div class="qa-icon">&#128176;</div>
+            <div class="qa-title">Asgari Ucret</div>
+            <div class="qa-desc">2025 asgari ucret bilgisi</div>
+          </div>
+          <div class="quick-action" onclick="sendQuick('Yargitay mulkiyet hakki kararlari')">
+            <div class="qa-icon">&#9878;</div>
+            <div class="qa-title">Yargitay Kararlari</div>
+            <div class="qa-desc">Mulkiyet hakki ictihatlar</div>
+          </div>
+          <div class="quick-action" onclick="sendQuick('Ankara\'daki aktif ihaleler')">
+            <div class="qa-icon">&#127959;</div>
+            <div class="qa-title">Ihale Arama</div>
+            <div class="qa-desc">Ankara\'daki kamu ihaleleri</div>
+          </div>
+          <div class="quick-action" onclick="document.getElementById('file-input').click()">
+            <div class="qa-icon">&#128196;</div>
+            <div class="qa-title">Belge Yukle</div>
+            <div class="qa-desc">PDF veya EYP/UDF dosyasi</div>
+          </div>
         </div>
       </div>
+    </div>
 
-      <p style="color:#94a3b8;margin-bottom:1rem;">Turk hukuk, mali, ihale ve piyasa verileri hakkinda soru sorun. MCP araclari ile veri toplanir, AI ile yanitlanir.</p>
-      <div id="chat-messages" style="max-height:400px;overflow-y:auto;margin-bottom:1rem;padding:0.5rem;background:#0f172a;border-radius:8px;min-height:100px;"></div>
-      <div style="display:flex;gap:0.5rem;">
-        <input type="text" id="chat-input" placeholder='Ornek: "2025 asgari ucret ne kadar?" veya "Yargitay mulkiyet kararlari"' style="flex:1;padding:0.75rem;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:0.95rem;" maxlength="500" />
-        <button id="chat-btn" onclick="sendChat()" style="padding:0.75rem 1.5rem;border-radius:8px;border:none;background:linear-gradient(135deg,#e11d48,#f59e0b);color:#fff;font-weight:600;cursor:pointer;font-size:0.95rem;">Gonder</button>
+    <!-- File Drop Overlay -->
+    <div class="file-drop-overlay" id="file-drop-overlay">&#128196; Dosya yuklemek icin birakin</div>
+
+    <!-- Input Area -->
+    <div class="input-area">
+      <div class="input-row">
+        <button class="upload-btn" onclick="document.getElementById('file-input').click()" title="Dosya yukle">&#128206;</button>
+        <input type="file" id="file-input" accept=".pdf,.eyp,.udf" style="display:none" onchange="handleFileUpload(this.files[0])" />
+        <textarea class="chat-input" id="chat-input" placeholder="Soru sorun veya dosya yukleyin..." rows="1" onkeydown="handleKeyDown(event)" oninput="autoResize(this)"></textarea>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()">&#10148;</button>
       </div>
-      <div id="chat-limit" style="margin-top:0.5rem;font-size:0.8rem;color:#64748b;"></div>
+      <div class="input-footer">
+        <span id="char-count"></span>
+        <span id="rate-limit"></span>
+      </div>
     </div>
   </div>
-
-  <footer>
-    <p>Turkiye MCP Server v1.0.0 — <a href="https://github.com/ayzekhdawy/turkiye-mcp">GitHub</a></p>
-  </footer>
 </div>
 
 <script>
-const base = window.location.origin;
-document.getElementById('sse-url').textContent = base + '/sse';
-document.getElementById('sse-url-inline').textContent = base;
-document.getElementById('sse-url-cli').textContent = base;
-document.getElementById('sse-url-cursor').textContent = base;
-
-// Provider config
+// ===== State =====
 const PROVIDERS = {
   openrouter: { name: "OpenRouter", needs_key: true, models: ["openai/gpt-4o-mini","anthropic/claude-3.5-sonnet","google/gemini-2.0-flash","meta-llama/llama-3.1-8b-instruct"], default_model: "openai/gpt-4o-mini" },
   openai: { name: "OpenAI", needs_key: true, models: ["gpt-4o-mini","gpt-4o","gpt-4-turbo"], default_model: "gpt-4o-mini" },
@@ -759,43 +792,316 @@ const PROVIDERS = {
   ollama: { name: "Ollama (Yerel)", needs_key: false, models: ["llama3.2","llama3.1","mistral","qwen2.5","gemma2"], default_model: "llama3.2" },
 };
 
+let chats = JSON.parse(localStorage.getItem('turkiye_mcp_chats') || '[]');
+let activeChatId = localStorage.getItem('turkiye_mcp_active_chat') || null;
 let currentProvider = localStorage.getItem('llm-provider') || 'openrouter';
 let currentModel = localStorage.getItem('llm-model') || '';
 let savedApiKey = localStorage.getItem('llm-api-key') || '';
+let isSending = false;
 
+// ===== Chat Management =====
+function generateId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
+
+function generateTitle(msg) {
+  const lower = msg.toLowerCase();
+  const titleMap = {
+    'yargitay': 'Yargitay Kararlari', 'danistay': 'Danistay Kararlari',
+    'anayasa': 'Anayasa Mahkemesi', 'asgari': 'Asgari Ucret', 'resmi gazete': 'Resmi Gazete',
+    'ihale': 'Ihale Arama', 'borsa': 'Borsa Verileri', 'doviz': 'Doviz Kurlari',
+    'kripto': 'Kripto Para', 'vergi': 'Vergi Sirkuleri', 'sgk': 'SGK Bilgileri',
+    'efatura': 'e-Fatura Sorgulama', 'mevzuat': 'Mevzuat Arama',
+  };
+  for (const [key, title] of Object.entries(titleMap)) {
+    if (lower.includes(key)) return title;
+  }
+  return msg.substring(0, 35) + (msg.length > 35 ? '...' : '');
+}
+
+function newChat() {
+  const chat = { id: generateId(), title: 'Yeni Sohbet', messages: [], created: Date.now() };
+  chats.unshift(chat);
+  activeChatId = chat.id;
+  saveChats();
+  renderChatList();
+  renderChat();
+}
+
+function switchChat(id) {
+  activeChatId = id;
+  localStorage.setItem('turkiye_mcp_active_chat', id);
+  renderChatList();
+  renderChat();
+}
+
+function deleteChat(id, e) {
+  e.stopPropagation();
+  chats = chats.filter(c => c.id !== id);
+  if (activeChatId === id) {
+    activeChatId = chats.length > 0 ? chats[0].id : null;
+  }
+  saveChats();
+  renderChatList();
+  renderChat();
+}
+
+function saveChats() {
+  localStorage.setItem('turkiye_mcp_chats', JSON.stringify(chats));
+  localStorage.setItem('turkiye_mcp_active_chat', activeChatId || '');
+}
+
+function getActiveChat() { return chats.find(c => c.id === activeChatId); }
+
+// ===== Rendering =====
+function renderChatList() {
+  const list = document.getElementById('chat-list');
+  if (chats.length === 0) {
+    list.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:1rem;">Henuz sohbet yok</div>';
+    return;
+  }
+  let html = '';
+  const today = new Date().toDateString();
+  const yesterday = new Date(Date.now() - 86400000).toDateString();
+  let lastDate = '';
+
+  chats.forEach(c => {
+    const d = new Date(c.created).toDateString();
+    const dateLabel = d === today ? 'Bugun' : d === yesterday ? 'Dun' : new Date(c.created).toLocaleDateString('tr-TR', {day:'numeric',month:'short'});
+    if (d !== lastDate) {
+      html += `<div class="chat-date">${dateLabel}</div>`;
+      lastDate = d;
+    }
+    const active = c.id === activeChatId ? 'active' : '';
+    html += `<div class="chat-item ${active}" onclick="switchChat('${c.id}')">
+      <span class="icon">&#128172;</span>
+      <span class="title">${c.title}</span>
+      <span class="delete-chat" onclick="deleteChat('${c.id}', event)">&#10005;</span>
+    </div>`;
+  });
+  list.innerHTML = html;
+}
+
+function renderChat() {
+  const area = document.getElementById('chat-area');
+  const welcome = document.getElementById('welcome-screen');
+  const chat = getActiveChat();
+
+  if (!chat || chat.messages.length === 0) {
+    welcome.style.display = 'flex';
+    // Remove message elements
+    area.querySelectorAll('.message').forEach(el => el.remove());
+    return;
+  }
+
+  welcome.style.display = 'none';
+  // Clear old messages
+  area.querySelectorAll('.message').forEach(el => el.remove());
+
+  chat.messages.forEach(m => {
+    const div = document.createElement('div');
+    div.className = `message ${m.role}`;
+    div.innerHTML = `<div class="bubble">${escapeHtml(m.text)}${m.sources ? renderSources(m.sources) : ''}</div>`;
+    area.appendChild(div);
+  });
+  area.scrollTop = area.scrollHeight;
+}
+
+function renderSources(sources) {
+  if (!sources || sources.length === 0) return '';
+  return `<div class="sources">${sources.map(s => `<span class="source-tag">${s}</span>`).join('')}</div>`;
+}
+
+function escapeHtml(text) {
+  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ===== Send Message =====
+function sendQuick(msg) {
+  document.getElementById('chat-input').value = msg;
+  sendMessage();
+}
+
+async function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg || isSending) return;
+  input.value = '';
+  autoResize(input);
+
+  // Ensure we have an active chat
+  if (!activeChatId) newChat();
+  let chat = getActiveChat();
+  if (!chat) { newChat(); chat = getActiveChat(); }
+
+  // Update title on first message
+  if (chat.messages.length === 0) {
+    chat.title = generateTitle(msg);
+    renderChatList();
+  }
+
+  // Add user message
+  chat.messages.push({ role: 'user', text: msg });
+  renderChat();
+  saveChats();
+
+  // Show typing indicator
+  isSending = true;
+  document.getElementById('send-btn').disabled = true;
+  const typingDiv = document.createElement('div');
+  typingDiv.className = 'message assistant';
+  typingDiv.id = 'typing-indicator';
+  typingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);">Yaziyor...</div>';
+  document.getElementById('chat-area').appendChild(typingDiv);
+  document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
+
+  try {
+    const provider = document.getElementById('llm-provider').value;
+    const model = document.getElementById('llm-model').value;
+    const apiKey = savedApiKey || localStorage.getItem('llm-api-key') || '';
+
+    const headers = {'Content-Type': 'application/json'};
+    if (apiKey && PROVIDERS[provider].needs_key) {
+      headers['X-API-Key'] = apiKey;
+      headers['X-LLM-Provider'] = provider;
+      headers['X-LLM-Model'] = model;
+    } else if (!PROVIDERS[provider].needs_key) {
+      headers['X-LLM-Provider'] = provider;
+      headers['X-LLM-Model'] = model;
+    }
+
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers,
+      body: JSON.stringify({message: msg, provider, api_key: apiKey, model})
+    });
+    const data = await res.json();
+
+    // Remove typing indicator
+    const ti = document.getElementById('typing-indicator');
+    if (ti) ti.remove();
+
+    if (data.error) {
+      chat.messages.push({ role: 'system', text: 'Hata: ' + data.error });
+    } else {
+      chat.messages.push({ role: 'assistant', text: data.response, sources: data.sources || [] });
+    }
+  } catch(e) {
+    const ti = document.getElementById('typing-indicator');
+    if (ti) ti.remove();
+    chat.messages.push({ role: 'system', text: 'Baglanti hatasi.' });
+  }
+
+  isSending = false;
+  document.getElementById('send-btn').disabled = false;
+  renderChat();
+  saveChats();
+
+  // Update rate limit
+  const rateEl = document.getElementById('rate-limit');
+  if (chat.messages.length > 0) {
+    const last = chat.messages[chat.messages.length - 1];
+    // rate info from last response is not stored, just show chat count
+  }
+}
+
+// ===== File Upload =====
+async function handleFileUpload(file) {
+  if (!file) return;
+  const isUyap = file.name.toLowerCase().endsWith('.eyp') || file.name.toLowerCase().endsWith('.udf');
+  const endpoint = isUyap ? '/api/upload/uyap' : '/api/upload/pdf';
+
+  if (!activeChatId) newChat();
+  let chat = getActiveChat();
+  if (!chat) { newChat(); chat = getActiveChat(); }
+
+  if (chat.messages.length === 0) {
+    chat.title = 'Belge: ' + file.name;
+    renderChatList();
+  }
+
+  chat.messages.push({ role: 'system', text: `Dosya yukleniyor: ${file.name}...` });
+  renderChat();
+  saveChats();
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch(endpoint, { method: 'POST', body: formData });
+    const data = await res.json();
+
+    // Remove the loading message
+    chat.messages = chat.messages.filter(m => !m.text.startsWith('Dosya yukleniyor'));
+
+    if (data.error) {
+      chat.messages.push({ role: 'system', text: 'Hata: ' + data.error });
+    } else if (isUyap) {
+      const b = data.belge || {};
+      let text = `Belge analizi: ${data.filename}\n`;
+      if (b.konu) text += `Konu: ${b.konu}\n`;
+      if (b.dosya_bilgisi) text += `Dosya: ${b.dosya_bilgisi.dosya_no || ''} | ${b.dosya_bilgisi.dosya_tur || ''}\n`;
+      if (b.taraflar && b.taraflar.length > 0) text += `Taraflar: ${b.taraflar.map(t => t.ad + ' (' + t.rol + ')').join(', ')}\n`;
+      if (data.referanslar && data.referanslar.length > 0) {
+        text += `\nReferanslar:\n`;
+        data.referanslar.forEach(r => text += `- ${r.label}: ${r.value}\n`);
+      }
+      chat.messages.push({ role: 'assistant', text });
+      if (chat.title === 'Yeni Sohbet') {
+        chat.title = `EYP: ${b.dosya_bilgisi?.dosya_no || file.name}`;
+        renderChatList();
+      }
+    } else {
+      let text = `PDF: ${data.filename} (${data.metadata?.pages || '?'} sayfa)\n`;
+      text += `Metin uzunlugu: ${data.full_text_length || 0} karakter\n`;
+      if (data.references && data.references.length > 0) {
+        text += `\nReferanslar:\n`;
+        data.references.forEach(r => text += `- ${r.label}: ${r.value}\n`);
+      }
+      chat.messages.push({ role: 'assistant', text });
+      if (chat.title === 'Yeni Sohbet') {
+        chat.title = `PDF: ${file.name}`;
+        renderChatList();
+      }
+    }
+  } catch(e) {
+    chat.messages = chat.messages.filter(m => !m.text.startsWith('Dosya yukleniyor'));
+    chat.messages.push({ role: 'system', text: 'Yukleme hatasi.' });
+  }
+
+  renderChat();
+  saveChats();
+}
+
+// ===== Provider/Model Config =====
 function onProviderChange() {
-  const sel = document.getElementById('llm-provider');
-  currentProvider = sel.value;
+  currentProvider = document.getElementById('llm-provider').value;
   updateModelDropdown();
   updateApiKeyVisibility();
   localStorage.setItem('llm-provider', currentProvider);
 }
 
 function updateModelDropdown() {
-  const modelSel = document.getElementById('llm-model');
+  const sel = document.getElementById('llm-model');
   const provider = PROVIDERS[currentProvider];
-  modelSel.innerHTML = '';
+  sel.innerHTML = '';
   provider.models.forEach(m => {
     const opt = document.createElement('option');
-    opt.value = m;
-    opt.textContent = m;
+    opt.value = m; opt.textContent = m;
     if (m === (currentModel || provider.default_model)) opt.selected = true;
-    modelSel.appendChild(opt);
+    sel.appendChild(opt);
   });
-  currentModel = modelSel.value;
+  currentModel = sel.value;
   localStorage.setItem('llm-model', currentModel);
 }
 
 function updateApiKeyVisibility() {
   const provider = PROVIDERS[currentProvider];
-  const keyRow = document.getElementById('api-key-row');
-  const ollamaInfo = document.getElementById('ollama-info');
+  const keyInput = document.getElementById('llm-api-key');
+  const saveBtn = document.querySelector('.save-btn');
   if (provider.needs_key) {
-    keyRow.style.display = 'flex';
-    ollamaInfo.style.display = 'none';
+    keyInput.style.display = 'block';
+    saveBtn.style.display = 'block';
   } else {
-    keyRow.style.display = 'none';
-    ollamaInfo.style.display = 'block';
+    keyInput.style.display = 'none';
+    saveBtn.style.display = 'none';
   }
   updateStatusBadge();
 }
@@ -805,16 +1111,13 @@ function updateStatusBadge() {
   const provider = PROVIDERS[currentProvider];
   if (!provider.needs_key) {
     badge.textContent = 'Yerel LLM';
-    badge.style.background = '#064e3b';
-    badge.style.color = '#34d399';
+    badge.className = 'llm-status local';
   } else if (savedApiKey) {
-    badge.textContent = provider.name + ' - Key Var';
-    badge.style.background = '#064e3b';
-    badge.style.color = '#34d399';
+    badge.textContent = provider.name;
+    badge.className = 'llm-status connected';
   } else {
     badge.textContent = 'API Key Gerekli';
-    badge.style.background = '#450a0a';
-    badge.style.color = '#f87171';
+    badge.className = 'llm-status disconnected';
   }
 }
 
@@ -828,20 +1131,14 @@ async function saveConfig() {
     return;
   }
 
-  // Yerel keyring'e kaydet
   try {
-    const res = await fetch('/api/chat/configure', {
+    await fetch('/api/chat/configure', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ provider, api_key: apiKey, model })
     });
-    const data = await res.json();
-    if (data.error && !data.error.includes('yerel mod')) {
-      // Yerel modda degilse localStorage'a kaydet
-    }
   } catch(e) {}
 
-  // localStorage'a da kaydet (fallback)
   if (apiKey) {
     savedApiKey = apiKey;
     localStorage.setItem('llm-api-key', apiKey);
@@ -850,279 +1147,70 @@ async function saveConfig() {
   currentModel = model;
   localStorage.setItem('llm-provider', provider);
   localStorage.setItem('llm-model', model);
-
-  updateStatusBadge();
   document.getElementById('llm-api-key').value = '';
-  addMsg('system', 'Yapilandirma kaydedildi: ' + PROVIDERS[provider].name + ' / ' + model);
+  updateStatusBadge();
 }
 
-// Initialize
-document.getElementById('llm-provider').value = currentProvider;
-updateModelDropdown();
-updateApiKeyVisibility();
+// ===== Drag & Drop =====
+const dropOverlay = document.getElementById('file-drop-overlay');
+document.addEventListener('dragover', e => { e.preventDefault(); dropOverlay.classList.add('active'); });
+document.addEventListener('dragleave', e => { if (e.relatedTarget === null) dropOverlay.classList.remove('active'); });
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  dropOverlay.classList.remove('active');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFileUpload(file);
+});
 
-// Module status
+// ===== Input Handling =====
+function handleKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ===== Module Status =====
 (async function() {
   try {
     const res = await fetch('/health');
     const data = await res.json();
-    const grid = document.getElementById('status-grid');
+    const grid = document.getElementById('module-grid');
     grid.innerHTML = '';
     if (data.modules) {
       for (const [name, ok] of Object.entries(data.modules)) {
         const div = document.createElement('div');
-        div.className = 'status-item ' + (ok ? 'status-ok' : 'status-fail');
-        div.textContent = (ok ? '✅ ' : '❌ ') + name;
+        div.className = 'module-item ' + (ok ? 'ok' : 'fail');
+        div.textContent = (ok ? '' : '') + ' ' + name;
         grid.appendChild(div);
       }
     }
   } catch(e) {
-    document.getElementById('status-grid').innerHTML = '<div class="status-fail">Sunucu durumu alinamadi</div>';
+    document.getElementById('module-grid').innerHTML = '<div style="color:var(--danger)">Sunucu durumu alinamadi</div>';
   }
 })();
 
-// Chat
-let chatRemaining = null;
-const chatInput = document.getElementById('chat-input');
-const chatBtn = document.getElementById('chat-btn');
-const chatMessages = document.getElementById('chat-messages');
-const chatLimit = document.getElementById('chat-limit');
+// ===== Init =====
+document.getElementById('llm-provider').value = currentProvider;
+updateModelDropdown();
+updateApiKeyVisibility();
 
-function addMsg(role, text) {
-  const div = document.createElement('div');
-  div.style.cssText = 'margin:0.5rem 0;padding:0.75rem;border-radius:8px;white-space:pre-wrap;font-size:0.9rem;max-width:90%;' + (role==='user' ? 'background:#1e3a5f;margin-left:auto;text-align:right;' : role==='system' ? 'background:#334155;color:#94a3b8;margin-right:auto;' : 'background:#1a2744;margin-right:auto;');
-  div.textContent = text;
-  chatMessages.appendChild(div);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+if (activeChatId) {
+  renderChatList();
+  renderChat();
+} else if (chats.length > 0) {
+  activeChatId = chats[0].id;
+  localStorage.setItem('turkiye_mcp_active_chat', activeChatId);
+  renderChatList();
+  renderChat();
 }
-
-async function sendChat() {
-  const msg = chatInput.value.trim();
-  if (!msg) return;
-  chatInput.value = '';
-  addMsg('user', msg);
-  chatBtn.disabled = true;
-  chatBtn.textContent = '...';
-
-  const provider = document.getElementById('llm-provider').value;
-  const model = document.getElementById('llm-model').value;
-  const apiKey = savedApiKey || localStorage.getItem('llm-api-key') || '';
-
-  addMsg('system', 'Veriler aliniyor... (' + PROVIDERS[provider].name + ')');
-  try {
-    const headers = {'Content-Type': 'application/json'};
-    if (apiKey && PROVIDERS[provider].needs_key) {
-      headers['X-API-Key'] = apiKey;
-      headers['X-LLM-Provider'] = provider;
-      headers['X-LLM-Model'] = model;
-    } else if (!PROVIDERS[provider].needs_key) {
-      headers['X-LLM-Provider'] = provider;
-      headers['X-LLM-Model'] = model;
-    }
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({message: msg, provider, api_key: apiKey, model})
-    });
-    const data = await res.json();
-    chatMessages.lastChild.remove(); // remove loading
-    if (data.error) {
-      if (data.needs_key) {
-        addMsg('assistant', 'Lutfen once bir API anahtari girin. Saglayici: ' + (data.provider || provider));
-      } else {
-        addMsg('assistant', 'Hata: ' + data.error);
-      }
-    } else {
-      addMsg('assistant', data.response);
-    }
-    chatRemaining = data.remaining;
-    chatLimit.textContent = data.remaining !== undefined ? 'Kalan istek hakki: ' + data.remaining + '/10' : '';
-  } catch(e) {
-    chatMessages.lastChild.remove();
-    addMsg('assistant', 'Baglanti hatasi.');
-  }
-  chatBtn.disabled = false;
-  chatBtn.textContent = 'Gonder';
-}
-
-chatInput.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') sendChat();
-});
 
 document.getElementById('llm-model').addEventListener('change', function() {
   currentModel = this.value;
   localStorage.setItem('llm-model', currentModel);
 });
-
-// === PDF Upload ===
-let pdfExtractedText = '';
-
-// Drag & drop
-const dropZone = document.getElementById('pdf-drop-zone');
-dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.style.borderColor='#60a5fa'; this.style.background='#1a2744'; });
-dropZone.addEventListener('dragleave', function(e) { this.style.borderColor='#334155'; this.style.background=''; });
-dropZone.addEventListener('drop', function(e) {
-  e.preventDefault();
-  this.style.borderColor='#334155'; this.style.background='';
-  const file = e.dataTransfer.files[0];
-  if (file && file.name.toLowerCase().endsWith('.pdf')) {
-    uploadPdf(file);
-  } else {
-    alert('Lutfen bir PDF dosyasi yukleyin.');
-  }
-});
-
-async function uploadPdf(file) {
-  if (!file) return;
-  const progressDiv = document.getElementById('pdf-progress');
-  const resultDiv = document.getElementById('pdf-result');
-  const refsDiv = document.getElementById('pdf-refs');
-  const progressBar = document.getElementById('pdf-progress-bar');
-
-  progressDiv.style.display = 'block';
-  resultDiv.style.display = 'none';
-  refsDiv.style.display = 'none';
-  progressBar.style.width = '30%';
-
-  // Determine file type and endpoint
-  const isUyap = file.name.toLowerCase().endsWith('.eyp') || file.name.toLowerCase().endsWith('.udf');
-  const endpoint = isUyap ? '/api/upload/uyap' : '/api/upload/pdf';
-
-  const formData = new FormData();
-  formData.append('file', file);
-
-  try {
-    progressBar.style.width = '60%';
-    const res = await fetch(endpoint, { method: 'POST', body: formData });
-    const data = await res.json();
-    progressBar.style.width = '100%';
-
-    if (data.error) {
-      resultDiv.style.display = 'block';
-      resultDiv.innerHTML = '<div style="color:#f87171;padding:0.75rem;background:#450a0a;border-radius:8px;">Hata: ' + data.error + '</div>';
-      progressDiv.style.display = 'none';
-      return;
-    }
-
-    if (isUyap) {
-      // UYAP EYP/UDF result
-      pdfExtractedText = data.markdown || '';
-      const b = data.belge || {};
-      resultDiv.style.display = 'block';
-      resultDiv.innerHTML = '<div style="background:#0f172a;border-radius:8px;padding:1rem;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">' +
-        '<span style="color:#34d399;font-weight:600;">✅ ' + (data.filename || file.name) + '</span>' +
-        '<span style="color:#64748b;font-size:0.85rem;">UYAP Belge</span></div>' +
-        (b.konu ? '<div style="color:#e2e8f0;margin-bottom:0.25rem;"><b>Konu:</b> ' + b.konu + '</div>' : '') +
-        (b.belge_no ? '<div style="color:#e2e8f0;margin-bottom:0.25rem;"><b>Belge No:</b> ' + b.belge_no + '</div>' : '') +
-        (b.olusturan_adi ? '<div style="color:#e2e8f0;margin-bottom:0.25rem;"><b>Olusturan:</b> ' + b.olusturan_adi + '</div>' : '') +
-        (b.tarih ? '<div style="color:#e2e8f0;margin-bottom:0.25rem;"><b>Tarih:</b> ' + b.tarih + '</div>' : '') +
-        (b.taraflar && b.taraflar.length > 0 ? '<div style="margin-top:0.5rem;color:#93c5fd;font-weight:600;">Taraflar:</div>' + b.taraflar.map(function(t) { return '<div style="color:#cbd5e1;font-size:0.85rem;">- ' + t.ad + (t.rol ? ' (' + t.rol + ')' : '') + ' | TCKN: ' + t.tckn + '</div>'; }).join('') : '') +
-        (b.dosya_bilgisi ? '<div style="margin-top:0.5rem;color:#93c5fd;font-weight:600;">Dosya Bilgileri:</div><div style="color:#cbd5e1;font-size:0.85rem;">' + (b.dosya_bilgisi.dosya_no || '') + ' | ' + (b.dosya_bilgisi.dosya_tur || '') + ' | ' + (b.dosya_bilgisi.birim || '') + '</div>' : '') +
-        (b.imzalar && b.imzalar.length > 0 ? '<div style="margin-top:0.5rem;color:#93c5fd;font-weight:600;">Imzalar:</div>' + b.imzalar.map(function(i) { return '<div style="color:#cbd5e1;font-size:0.85rem;">- ' + i.ad + ' (' + i.makam + ')</div>'; }).join('') : '') +
-        '<details style="margin-top:0.5rem;"><summary style="color:#60a5fa;cursor:pointer;font-size:0.9rem;">Markdown ciktisini goruntule</summary><pre style="max-height:300px;overflow-y:auto;background:#1e293b;padding:0.75rem;border-radius:6px;font-size:0.85rem;white-space:pre-wrap;color:#cbd5e1;margin-top:0.5rem;">' + (data.markdown || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre></details>' +
-        '</div>';
-
-      // References
-      if (b.referanslar && b.referanslar.length > 0) {
-        refsDiv.style.display = 'block';
-        let refsHtml = '<div style="background:#0f172a;border-radius:8px;padding:1rem;">';
-        refsHtml += '<div style="color:#34d399;font-weight:600;margin-bottom:0.5rem;">📋 Tespit Edilen Referanslar (' + b.referanslar.length + ')</div>';
-        refsHtml += '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">';
-        b.referanslar.forEach(function(ref) {
-          refsHtml += '<span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.75rem;border-radius:6px;background:#1e3a5f;color:#93c5fd;font-size:0.85rem;">';
-          refsHtml += '<span style="color:#64748b;font-size:0.75rem;">' + ref.label + ':</span> ' + ref.value;
-          refsHtml += '</span>';
-        });
-        refsHtml += '</div>';
-        refsHtml += '<button onclick="searchAllRefs()" style="padding:0.5rem 1rem;border-radius:6px;border:none;background:linear-gradient(135deg,#059669,#34d399);color:#fff;font-weight:600;cursor:pointer;font-size:0.9rem;">🔍 Tum Referanslari Ara</button>';
-        refsHtml += '<div id="refs-results" style="margin-top:0.75rem;"></div>';
-        refsHtml += '</div>';
-        refsDiv.innerHTML = refsHtml;
-        window._pdfRefs = b.referanslar;
-      }
-    } else {
-
-    // Metni sakla (chat icin)
-    pdfExtractedText = data.text || '';
-
-    // Sonucu goster
-    resultDiv.style.display = 'block';
-    resultDiv.innerHTML = `
-      <div style="background:#0f172a;border-radius:8px;padding:1rem;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-          <span style="color:#34d399;font-weight:600;">✅ ${data.filename}</span>
-          <span style="color:#64748b;font-size:0.85rem;">${data.metadata.pages || '?'} sayfa | ${data.metadata.method === 'tesseract_ocr' ? 'OCR' : 'Metin cikarma'}</span>
-        </div>
-        <details style="margin-top:0.5rem;">
-          <summary style="color:#60a5fa;cursor:pointer;font-size:0.9rem;">Metni goruntule (${data.full_text_length} karakter${data.truncated ? ', kisaltildi' : ''})</summary>
-          <pre style="max-height:300px;overflow-y:auto;background:#1e293b;padding:0.75rem;border-radius:6px;font-size:0.85rem;white-space:pre-wrap;color:#cbd5e1;margin-top:0.5rem;">${(data.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
-        </details>
-      </div>`;
-
-    // Referanslari goster
-    if (data.references && data.references.length > 0) {
-      refsDiv.style.display = 'block';
-      let refsHtml = '<div style="background:#0f172a;border-radius:8px;padding:1rem;">';
-      refsHtml += '<div style="color:#34d399;font-weight:600;margin-bottom:0.5rem;">📋 Tespit Edilen Referanslar (' + data.references.length + ')</div>';
-      refsHtml += '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">';
-      data.references.forEach((ref, i) => {
-        refsHtml += '<span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.75rem;border-radius:6px;background:#1e3a5f;color:#93c5fd;font-size:0.85rem;">';
-        refsHtml += '<span style="color:#64748b;font-size:0.75rem;">' + ref.label + ':</span> ' + ref.value;
-        refsHtml += '</span>';
-      });
-      refsHtml += '</div>';
-      refsHtml += '<button onclick="searchAllRefs()" style="padding:0.5rem 1rem;border-radius:6px;border:none;background:linear-gradient(135deg,#059669,#34d399);color:#fff;font-weight:600;cursor:pointer;font-size:0.9rem;">🔍 Tum Referanslari Ara</button>';
-      refsHtml += '<div id="refs-results" style="margin-top:0.75rem;"></div>';
-      refsHtml += '</div>';
-      refsDiv.innerHTML = refsHtml;
-
-      // Referanslari global sakla
-      window._pdfRefs = data.references;
-    }
-
-    setTimeout(() => { progressDiv.style.display = 'none'; }, 1000);
-  } catch(e) {
-    resultDiv.style.display = 'block';
-    resultDiv.innerHTML = '<div style="color:#f87171;padding:0.75rem;background:#450a0a;border-radius:8px;">Yukleme hatasi: ' + e.message + '</div>';
-    progressDiv.style.display = 'none';
-  }
-}
-
-async function searchAllRefs() {
-  if (!window._pdfRefs || window._pdfRefs.length === 0) {
-    alert('Aranacak referans bulunamadi.');
-    return;
-  }
-  const resultsDiv = document.getElementById('refs-results');
-  resultsDiv.innerHTML = '<div style="color:#60a5fa;">Referanslar araniyor...</div>';
-
-  try {
-    const res = await fetch('/api/search/refs', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({references: window._pdfRefs})
-    });
-    const data = await res.json();
-
-    if (data.error) {
-      resultsDiv.innerHTML = '<div style="color:#f87171;">Hata: ' + data.error + '</div>';
-      return;
-    }
-
-    let html = '';
-    data.results.forEach((item, i) => {
-      const ref = item.ref;
-      html += '<div style="margin:0.5rem 0;padding:0.75rem;background:#1e293b;border-radius:6px;border-left:3px solid #60a5fa;">';
-      html += '<div style="font-weight:600;color:#93c5fd;font-size:0.9rem;">' + ref.label + ': ' + ref.value + '</div>';
-      html += '<div style="font-size:0.85rem;color:#cbd5e1;margin-top:0.25rem;white-space:pre-wrap;max-height:200px;overflow-y:auto;">' + item.result.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-      html += '</div>';
-    });
-    resultsDiv.innerHTML = html || '<div style="color:#94a3b8;">Sonuc bulunamadi.</div>';
-  } catch(e) {
-    resultsDiv.innerHTML = '<div style="color:#f87171;">Arama hatasi: ' + e.message + '</div>';
-  }
-}
 </script>
 </body>
 </html>"""
