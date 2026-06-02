@@ -458,7 +458,7 @@ if MODULES_AVAILABLE.get("kvkk"):
     @app.tool(description="KVKK kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
     async def search_kvkk_decisions(keyword: str = "", page: int = 1) -> str:
         try:
-            request = KvkkSearchRequest(keywords=[keyword], page=page)
+            request = KvkkSearchRequest(keywords=keyword, page=page)
             result = await kvkk_client.search_decisions(request)
             return str(result.model_dump())[:4000]
         except Exception as e:
@@ -468,7 +468,7 @@ if MODULES_AVAILABLE.get("bddk"):
     @app.tool(description="BDDK kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
     async def search_bddk_decisions(keyword: str = "", page: int = 1) -> str:
         try:
-            request = BddkSearchRequest(keywords=[keyword], page=page)
+            request = BddkSearchRequest(keywords=keyword, page=page)
             result = await bddk_client.search_decisions(request)
             return str(result.model_dump())[:4000]
         except Exception as e:
@@ -478,7 +478,7 @@ if MODULES_AVAILABLE.get("sigorta_tahkim"):
     @app.tool(description="Sigorta Tahkim kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
     async def search_sigorta_tahkim(keyword: str = "", page: int = 1) -> str:
         try:
-            request = SigortaTahkimSearchRequest(keywords=[keyword], page=page)
+            request = SigortaTahkimSearchRequest(keywords=keyword, page=page)
             result = await sigorta_tahkim_client.search_decisions(request)
             return str(result.model_dump())[:4000]
         except Exception as e:

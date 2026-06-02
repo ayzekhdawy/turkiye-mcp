@@ -135,8 +135,8 @@ class ResmiGazeteClient:
             params["TarihBitis"] = request.bitis_tarihi.strftime("%d.%m.%Y")
 
         try:
-            response = await self.http_client.post(
-                "/arama", data=params
+            response = await self.http_client.get(
+                "/arama", params=params
             )
             response.raise_for_status()
 

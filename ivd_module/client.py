@@ -30,7 +30,7 @@ class IvdClient:
     """
 
     BASE_URL = "https://ivd.gib.gov.tr"
-    EFATURA_LIST_URL = "https://efatura.gib.gov.tr/efatura/api/v1"
+    EFATURA_LIST_URL = "https://ebelge.gib.gov.tr/api/v1"
 
     def __init__(self, request_timeout: float = 30.0):
         self.http_client = httpx.AsyncClient(

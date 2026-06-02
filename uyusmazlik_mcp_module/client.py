@@ -52,7 +52,7 @@ KARAR_SONUCU_ENUM_TO_ID_MAP = {
 
 class UyusmazlikApiClient:
     BASE_URL = "https://kararlar.uyusmazlik.gov.tr"
-    SEARCH_ENDPOINT = "/Arama/Search" 
+    SEARCH_ENDPOINT = "/Default.aspx"
     # Individual documents are fetched by their full URLs obtained from search results.
 
     def __init__(self, request_timeout: float = 30.0):

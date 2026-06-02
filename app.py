@@ -328,7 +328,7 @@ if MODULES_AVAILABLE.get("bedesten"):
             response = await bedesten_client.search_documents(BedestenSearchRequest(data=search_data))
             if response.data and response.data.emsalKararList:
                 result = f"# Bedesten Arama\n\n**Toplam:** {response.data.total}\n\n"
-                for d in response.data.emsalKararList[:10]: result += f"- **{d.birimAdi or '-'}** | Esas: {d.esasNo or '-'} | Karar: {d.kararNo or '-'}\n"
+                for d in response.data.emsalKararList[:10]: result += f"- **{d.birimAdi or '-'}** | Esas: {d.esasNo or '-'} | Karar: {d.kararNo or '-'} | ID: `{d.documentId}`\n"
                 return result
             return "Sonuç bulunamadı."
         except Exception as e: return f"❌ Hata: {str(e)}"
@@ -380,7 +380,7 @@ if MODULES_AVAILABLE.get("kvkk"):
     @app.tool(description="KVKK kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
     async def search_kvkk_decisions(keyword: str = "", page: int = 1) -> str:
         try:
-            result = await kvkk_client.search_decisions(KvkkSearchRequest(keywords=[keyword], page=page))
+            result = await kvkk_client.search_decisions(KvkkSearchRequest(keywords=keyword, page=page))
             return str(result.model_dump())[:4000]
         except Exception as e: return f"❌ Hata: {str(e)}"
 
@@ -388,7 +388,7 @@ if MODULES_AVAILABLE.get("bddk"):
     @app.tool(description="BDDK kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
     async def search_bddk_decisions(keyword: str = "", page: int = 1) -> str:
         try:
-            result = await bddk_client.search_decisions(BddkSearchRequest(keywords=[keyword], page=page))
+            result = await bddk_client.search_decisions(BddkSearchRequest(keywords=keyword, page=page))
             return str(result.model_dump())[:4000]
         except Exception as e: return f"❌ Hata: {str(e)}"
 
@@ -396,7 +396,7 @@ if MODULES_AVAILABLE.get("sigorta_tahkim"):
     @app.tool(description="Sigorta Tahkim kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
     async def search_sigorta_tahkim(keyword: str = "", page: int = 1) -> str:
         try:
-            result = await sigorta_tahkim_client.search_decisions(SigortaTahkimSearchRequest(keywords=[keyword], page=page))
+            result = await sigorta_tahkim_client.search_decisions(SigortaTahkimSearchRequest(keywords=keyword, page=page))
             return str(result.model_dump())[:4000]
         except Exception as e: return f"❌ Hata: {str(e)}"
 
