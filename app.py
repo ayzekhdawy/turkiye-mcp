@@ -720,8 +720,9 @@ async def health_endpoint(request):
 # ASGI APPLICATION
 # ============================================================
 
-# Get FastMCP's SSE ASGI app (correct method for SSE transport)
-mcp_asgi = app.sse_app()
+# Get FastMCP's ASGI app via http_app(transport="sse")
+# http_app() supports transport="http" | "streamable-http" | "sse"
+mcp_asgi = app.http_app(transport="sse")
 
 # Build Starlette app with dashboard + MCP mount
 # IMPORTANT: pass mcp_asgi.lifespan so FastMCP session manager starts properly
