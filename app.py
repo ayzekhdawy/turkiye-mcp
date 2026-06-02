@@ -210,8 +210,8 @@ except Exception as e:
 
 # --- BORSA MODÜLÜ ---
 try:
-    from borsa_module.borsa_client import BorsaClient
-    borsa_client = BorsaClient()
+    from borsa_module.borsa_client import BorsaApiClient
+    borsa_client = BorsaApiClient()
     MODULES_AVAILABLE["borsa"] = True
 except Exception as e:
     logger.warning(f"❌ Borsa: {e}")
