@@ -1,0 +1,19 @@
+# Core MCP
+fastmcp>=2.10.5
+# HTTP & Scraping
+httpx>=0.28.1
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+pydantic>=2.11.0
+pypdf>=5.0.0
+feedparser>=6.0.0
+python-dateutil>=2.9.0
+# Borsa/Financial
+yfinance>=0.2.37
+pandas>=2.0.0
+# PDF & Markdown
+markitdown[pdf]>=0.1.1
+# Encryption (ihale)
+cryptography>=44.0.0
+# SSE transport
+uvicorn[standard]>=0.30.0

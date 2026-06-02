@@ -1,0 +1,56 @@
+[project]
+name = "turkiye-mcp"
+version = "1.0.0"
+description = "Unified MCP Server for Turkish Legal, Financial, Procurement and Market Data - Türkiye Hukuk, Mali, İhale ve Piyasa Verileri"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "İshak Hedeoğlu", email = "ishakhedevi@gmail.com"},
+]
+keywords = [
+    "mcp", "turkey", "turkish-law", "yargitay", "danistay",
+    "mevzuat", "ihale", "borsa", "vergi", "sgk",
+    "mali-musavir", "accounting", "financial-advisor",
+    "stock-exchange", "procurement", "legal",
+]
+
+dependencies = [
+    # Core MCP
+    "fastmcp>=2.10.5",
+    # HTTP & Scraping
+    "httpx>=0.28.1",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "pydantic>=2.11.0",
+    "pypdf>=5.0.0",
+    "feedparser>=6.0.0",
+    "python-dateutil>=2.9.0",
+    # Borsa/Financial data
+    "yfinance>=0.2.37",
+    "pandas>=2.0.0",
+    # PDF & Markdown
+    "markitdown[pdf]>=0.1.1",
+    # Encryption (ihale)
+    "cryptography>=44.0.0",
+    # SSE transport
+    "uvicorn[standard]>=0.30.0",
+]
+
+[project.optional-dependencies]
+production = [
+    "gunicorn>=22.0.0",
+]
+
+[project.scripts]
+turkiye-mcp = "server:main"
+
+[tool.setuptools]
+py-modules = ["server"]
+
+[tool.setuptools.packages.find]
+include = ["*_module", "providers", "providers.*", "models", "models.*", "borsa_models", "borsa_models.*"]
+
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
