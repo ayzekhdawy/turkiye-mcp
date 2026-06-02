@@ -925,7 +925,7 @@ async def _route_and_call(message: str) -> str:
             except Exception as e:
                 results.append(f"### {tool_name}\n[Hata: {e}]\n")
 
-    return "\n---\n".join(results) if results else ""
+    return "\n---\n".join(results) if results else "", called
 
 
 async def chat_endpoint(request):
@@ -951,7 +951,7 @@ async def chat_endpoint(request):
         return JSONResponse({"error": "Geçersiz istek."}, status_code=400)
 
     # MCP araçlarını çağır
-    tool_context = await _route_and_call(message)
+    tool_context, called_tools = await _route_and_call(message)
 
     # OpenRouter'a gönder
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -970,7 +970,7 @@ async def chat_endpoint(request):
             resp.raise_for_status()
             data = resp.json()
             reply = data.get("choices", [{}])[0].get("message", {}).get("content", "Yanıt alınamadı.")
-            sources = list(called)[:5]
+            sources = list(called_tools)[:5]
     except httpx.HTTPStatusError as e:
         return JSONResponse({"error": f"LLM hatası: {e.response.status_code}", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits[client_ip])}, status_code=502)
     except Exception as e:
