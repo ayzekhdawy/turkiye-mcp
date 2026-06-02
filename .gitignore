@@ -16,3 +16,4 @@ logs/
 .ruff_cache/
 .pytest_cache/
 *.baktest_document.pdf
+test_document.pdf

@@ -222,6 +222,15 @@ except Exception as e:
     logger.warning(f"❌ Borsa: {e}")
     MODULES_AVAILABLE["borsa"] = False
 
+# --- UYAP EYP/UDF MODÜLÜ ---
+try:
+    from uyap_module.parser import UyapParser
+    uyap_parser = UyapParser()
+    MODULES_AVAILABLE["uyap"] = True
+except Exception as e:
+    logger.warning(f"❌ UYAP: {e}")
+    MODULES_AVAILABLE["uyap"] = False
+
 # ============================================================
 # MCP ARAÇLARI (aynı server.py'deki gibi)
 # ============================================================
@@ -672,14 +681,14 @@ KYB              — Kanun Yararına Bozma</div>
   </div>
 
   <div class="section">
-    <h2>📄 Belge Yükle (PDF)</h2>
+    <h2>📄 Belge Yükle</h2>
     <div class="card" id="pdf-section">
-      <p style="color:#94a3b8;margin-bottom:1rem;">PDF dosyasi yukleyin, belge metni cikarilir ve hukuki referans numaralari (esas no, karar no, RG sayisi, VKN/TCKN vb.) otomatik tespit edilir. Tespit edilen referanslari MCP araclariyla arayabilirsiniz.</p>
+      <p style="color:#94a3b8;margin-bottom:1rem;">PDF veya UYAP EYP/UDF dosyasi yukleyin. Belge metni cikarilir, taraflar ve hukuki referans numaralari otomatik tespit edilir.</p>
       <div id="pdf-drop-zone" style="border:2px dashed #334155;border-radius:12px;padding:2rem;text-align:center;cursor:pointer;transition:border-color 0.3s,background 0.3s;" onmouseover="this.style.borderColor='#60a5fa'" onmouseout="this.style.borderColor='#334155'" onclick="document.getElementById('pdf-file-input').click()">
         <div style="font-size:2.5rem;margin-bottom:0.5rem;">📁</div>
-        <div style="color:#94a3b8;font-size:0.95rem;">PDF dosyasi surukleyip birakin veya tiklayin</div>
-        <div style="color:#64748b;font-size:0.8rem;margin-top:0.25rem;">Maks 20MB</div>
-        <input type="file" id="pdf-file-input" accept=".pdf" style="display:none;" onchange="uploadPdf(this.files[0])" />
+        <div style="color:#94a3b8;font-size:0.95rem;">PDF veya EYP/UDF dosyasi surukleyip birakin veya tiklayin</div>
+        <div style="color:#64748b;font-size:0.8rem;margin-top:0.25rem;">Desteklenen formatlar: .pdf, .eyp, .udf | Maks 50MB</div>
+        <input type="file" id="pdf-file-input" accept=".pdf,.eyp,.udf" style="display:none;" onchange="uploadPdf(this.files[0])" />
       </div>
       <div id="pdf-progress" style="display:none;margin-top:1rem;padding:0.75rem;background:#1a2744;border-radius:8px;">
         <div style="color:#60a5fa;">Yukleniyor...</div>
@@ -975,12 +984,16 @@ async function uploadPdf(file) {
   refsDiv.style.display = 'none';
   progressBar.style.width = '30%';
 
+  // Determine file type and endpoint
+  const isUyap = file.name.toLowerCase().endsWith('.eyp') || file.name.toLowerCase().endsWith('.udf');
+  const endpoint = isUyap ? '/api/upload/uyap' : '/api/upload/pdf';
+
   const formData = new FormData();
   formData.append('file', file);
 
   try {
     progressBar.style.width = '60%';
-    const res = await fetch('/api/upload/pdf', { method: 'POST', body: formData });
+    const res = await fetch(endpoint, { method: 'POST', body: formData });
     const data = await res.json();
     progressBar.style.width = '100%';
 
@@ -990,6 +1003,45 @@ async function uploadPdf(file) {
       progressDiv.style.display = 'none';
       return;
     }
+
+    if (isUyap) {
+      // UYAP EYP/UDF result
+      pdfExtractedText = data.markdown || '';
+      const b = data.belge || {};
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML = '<div style="background:#0f172a;border-radius:8px;padding:1rem;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">' +
+        '<span style="color:#34d399;font-weight:600;">✅ ' + (data.filename || file.name) + '</span>' +
+        '<span style="color:#64748b;font-size:0.85rem;">UYAP Belge</span></div>' +
+        (b.konu ? '<div style="color:#e2e8f0;margin-bottom:0.25rem;"><b>Konu:</b> ' + b.konu + '</div>' : '') +
+        (b.belge_no ? '<div style="color:#e2e8f0;margin-bottom:0.25rem;"><b>Belge No:</b> ' + b.belge_no + '</div>' : '') +
+        (b.olusturan_adi ? '<div style="color:#e2e8f0;margin-bottom:0.25rem;"><b>Olusturan:</b> ' + b.olusturan_adi + '</div>' : '') +
+        (b.tarih ? '<div style="color:#e2e8f0;margin-bottom:0.25rem;"><b>Tarih:</b> ' + b.tarih + '</div>' : '') +
+        (b.taraflar && b.taraflar.length > 0 ? '<div style="margin-top:0.5rem;color:#93c5fd;font-weight:600;">Taraflar:</div>' + b.taraflar.map(function(t) { return '<div style="color:#cbd5e1;font-size:0.85rem;">- ' + t.ad + (t.rol ? ' (' + t.rol + ')' : '') + ' | TCKN: ' + t.tckn + '</div>'; }).join('') : '') +
+        (b.dosya_bilgisi ? '<div style="margin-top:0.5rem;color:#93c5fd;font-weight:600;">Dosya Bilgileri:</div><div style="color:#cbd5e1;font-size:0.85rem;">' + (b.dosya_bilgisi.dosya_no || '') + ' | ' + (b.dosya_bilgisi.dosya_tur || '') + ' | ' + (b.dosya_bilgisi.birim || '') + '</div>' : '') +
+        (b.imzalar && b.imzalar.length > 0 ? '<div style="margin-top:0.5rem;color:#93c5fd;font-weight:600;">Imzalar:</div>' + b.imzalar.map(function(i) { return '<div style="color:#cbd5e1;font-size:0.85rem;">- ' + i.ad + ' (' + i.makam + ')</div>'; }).join('') : '') +
+        '<details style="margin-top:0.5rem;"><summary style="color:#60a5fa;cursor:pointer;font-size:0.9rem;">Markdown ciktisini goruntule</summary><pre style="max-height:300px;overflow-y:auto;background:#1e293b;padding:0.75rem;border-radius:6px;font-size:0.85rem;white-space:pre-wrap;color:#cbd5e1;margin-top:0.5rem;">' + (data.markdown || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre></details>' +
+        '</div>';
+
+      // References
+      if (b.referanslar && b.referanslar.length > 0) {
+        refsDiv.style.display = 'block';
+        let refsHtml = '<div style="background:#0f172a;border-radius:8px;padding:1rem;">';
+        refsHtml += '<div style="color:#34d399;font-weight:600;margin-bottom:0.5rem;">📋 Tespit Edilen Referanslar (' + b.referanslar.length + ')</div>';
+        refsHtml += '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">';
+        b.referanslar.forEach(function(ref) {
+          refsHtml += '<span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.75rem;border-radius:6px;background:#1e3a5f;color:#93c5fd;font-size:0.85rem;">';
+          refsHtml += '<span style="color:#64748b;font-size:0.75rem;">' + ref.label + ':</span> ' + ref.value;
+          refsHtml += '</span>';
+        });
+        refsHtml += '</div>';
+        refsHtml += '<button onclick="searchAllRefs()" style="padding:0.5rem 1rem;border-radius:6px;border:none;background:linear-gradient(135deg,#059669,#34d399);color:#fff;font-weight:600;cursor:pointer;font-size:0.9rem;">🔍 Tum Referanslari Ara</button>';
+        refsHtml += '<div id="refs-results" style="margin-top:0.75rem;"></div>';
+        refsHtml += '</div>';
+        refsDiv.innerHTML = refsHtml;
+        window._pdfRefs = b.referanslar;
+      }
+    } else {
 
     // Metni sakla (chat icin)
     pdfExtractedText = data.text || '';
@@ -1089,6 +1141,103 @@ async def health_endpoint(request):
         "total_count": len(MODULES_AVAILABLE),
         "date": date.today().isoformat(),
     })
+
+
+# --- UYAP EYP/UDF ARAÇLARI ---
+if MODULES_AVAILABLE.get("uyap"):
+    @app.tool(description="UYAP EYP/UDF belge dosyasini cozumler. Dosya yolu veya base64 encoded veri alir.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    async def parse_uyap_document(file_path: str = "", base64_data: str = "") -> str:
+        """UYAP EYP/UDF belgesini parse eder.
+
+        Args:
+            file_path: EYP/UDF dosya yolu (yerel dosya)
+            base64_data: EYP/UDF dosya icerigi (base64 encoded)
+        """
+        import base64
+        try:
+            if file_path:
+                belge = uyap_parser.parse_eyp(file_path)
+            elif base64_data:
+                data = base64.b64decode(base64_data)
+                belge = uyap_parser.parse_eyp(data)
+            else:
+                return "Hata: file_path veya base64_data gerekli."
+
+            md = uyap_parser.to_markdown(belge)
+            return md
+
+        except Exception as e:
+            return f"UYAP parse hatasi: {str(e)}"
+
+    @app.tool(description="UYAP EYP/UDF belgesindeki taraflari listeler.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    async def get_uyap_parties(file_path: str = "", base64_data: str = "") -> str:
+        """UYAP EYP/UDF belgesindeki taraflari (sanik, musteki, mudafii vb.) listeler.
+
+        Args:
+            file_path: EYP/UDF dosya yolu (yerel dosya)
+            base64_data: EYP/UDF dosya icerigi (base64 encoded)
+        """
+        import base64
+        try:
+            if file_path:
+                belge = uyap_parser.parse_eyp(file_path)
+            elif base64_data:
+                data = base64.b64decode(base64_data)
+                belge = uyap_parser.parse_eyp(data)
+            else:
+                return "Hata: file_path veya base64_data gerekli."
+
+            result = "# Taraflar\n\n"
+            if belge.taraflar:
+                for t in belge.taraflar:
+                    rol = f" ({t.rol})" if t.rol else ""
+                    result += f"- **{t.ad}**{rol} — TCKN: {t.tckn}\n"
+            if belge.dagitim_taraflar:
+                result += "\n## Dagıtım Listesi\n\n"
+                for t in belge.dagitim_taraflar:
+                    result += f"- **{t.ad}** — TCKN: {t.tckn}\n"
+
+            if belge.dosya_bilgisi:
+                db = belge.dosya_bilgisi
+                result += f"\n## Dosya Bilgileri\n\n"
+                result += f"- **Dosya No:** {db.dosya_no}\n"
+                result += f"- **Dosya Türü:** {db.dosya_tur}\n"
+                result += f"- **Birim:** {db.birim_adi}\n"
+
+            return result if result.strip() != "# Taraflar" else "Taraflar bilgisi bulunamadi."
+
+        except Exception as e:
+            return f"UYAP parse hatasi: {str(e)}"
+
+    @app.tool(description="UYAP EYP/UDF belgesindeki hukuki referans numaralarini tespit eder.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    async def get_uyap_references(file_path: str = "", base64_data: str = "") -> str:
+        """UYAP EYP/UDF belgesindeki hukuki referans numaralarini (esas no, karar no, RG sayisi vb.) tespit eder.
+
+        Args:
+            file_path: EYP/UDF dosya yolu (yerel dosya)
+            base64_data: EYP/UDF dosya icerigi (base64 encoded)
+        """
+        import base64
+        try:
+            if file_path:
+                belge = uyap_parser.parse_eyp(file_path)
+            elif base64_data:
+                data = base64.b64decode(base64_data)
+                belge = uyap_parser.parse_eyp(data)
+            else:
+                return "Hata: file_path veya base64_data gerekli."
+
+            if not belge.referanslar:
+                return "Hukuki referans bulunamadi."
+
+            result = "# Tespit Edilen Referanslar\n\n"
+            for ref in belge.referanslar:
+                result += f"- **{ref['label']}:** {ref['value']} (arama: {ref['search_term']})\n"
+
+            return result
+
+        except Exception as e:
+            return f"UYAP parse hatasi: {str(e)}"
 
 
 # ============================================================
@@ -1424,20 +1573,20 @@ async def llm_status_endpoint(request):
 
 # Belge numarası regex kalıpları (hukuk belgelerinde arama için)
 DOCUMENT_REGEX_PATTERS = [
-    # Esas numarası: 2023/1234, 2024/5-678
-    (r"(?:esas\s*(?:say[ıi]s[ıi]?\s*)?(?:no[:\.]?\s*)?)?(\d{4}[/-]\d{1,6})", "esas_no"),
-    # Karar numarası: K.2023/1234
-    (r"[Kk][\.\s]*(\d{4}[/-]\d{1,6})", "karar_no"),
-    # Resmi Gazete: RG 32222, Resmi Gazete Sayı: 32222
-    (r"(?:resmi\s*gazete\s*(?:say[ıi]s[ıi]?\s*)?(?:no[:\.]?\s*)?)?(\d{5,6})", "rg_sayi"),
-    # VKN/TCKN: 10-11 haneli numara
-    (r"\b(\d{10,11})\b", "vkn_tckn"),
-    # Kanun numarası: 4721 sayılı kanun, KHK/642
-    (r"(\d{1,5})\s*(?:say[ıi]l[ıi]\s*kanun|say[ıi]l[ıi]\s*KHK)", "kanun_no"),
-    # İhale kayıt no: 2023/123456
-    (r"(?:ihale\s*(?:kay[ıi]t\s*)?(?:no[:\.]?\s*)?)?(\d{4}[/-]\d{4,8})", "ihale_no"),
-    # Dosya numarası: D:2023/123
-    (r"[Dd][\.\s:](\d{4}[/-]\d{1,6})", "dosya_no"),
+    # Esas numarası: "Esas No:" veya "Esas Sayısı:" ile başlayan (4 haneli yıl zorunlu)
+    (r"(?:esas\s*(?:say[ıi]s[ıi]?\s*)?(?:no[:\.]?\s*)?)(\d{4}[/-]\d{1,6})", "esas_no"),
+    # Karar numarası: K.2023/1234 (K veya Karar öneki zorunlu)
+    (r"[Kk](?:arar)?[\.\s:]*(\d{4}[/-]\d{1,6})", "karar_no"),
+    # Resmi Gazete sayısı: "Resmi Gazete" veya "RG" öneki zorunlu
+    (r"(?:resmi\s*gazete|RG)\s*(?:say[ıi]s[ıi]?\s*)?(?:no[:\.]?\s*)?(\d{5,6})", "rg_sayi"),
+    # VKN/TCKN: tam 10 veya 11 haneli numara
+    (r"\b(\d{10}|\d{11})\b", "vkn_tckn"),
+    # Kanun numarası: 4721 sayılı kanun
+    (r"(\d{1,5})\s*(?:say[ıi]l[ıi]\s*kanun|say[0134]l[0134]\s*kanun)", "kanun_no"),
+    # İhale kayıt no: "İhale" öneki zorunlu
+    (r"[İi]hale\s*(?:kay[ıi]t\s*)?(?:no[:\.]?\s*)?(\d{4}[/-]\d{4,8})", "ihale_no"),
+    # Dosya numarası: "D:" veya "Dosya No:" ile başlayan
+    (r"[Dd](?:osya)?[\.\s:]*(?:no[:\.]?\s*)?(\d{4}[/-]\d{1,6})", "dosya_no"),
 ]
 
 
@@ -1669,6 +1818,57 @@ async def search_document_refs_endpoint(request):
     return JSONResponse({"results": results})
 
 
+async def upload_uyap_endpoint(request):
+    """UYAP EYP/UDF dosya yukleme endpoint'i.
+
+    Multipart form-data ile .eyp veya .udf dosyasi yuklenir.
+    Yanit: belge analizi + referans numaralari.
+    """
+    try:
+        form = await request.form()
+    except Exception:
+        return JSONResponse({"error": "Gecersiz form verisi."}, status_code=400)
+
+    file = form.get("file")
+    if not file:
+        return JSONResponse({"error": "Dosya bulunamadi. 'file' alani gerekli."}, status_code=400)
+
+    content_bytes = await file.read()
+    if len(content_bytes) > 50 * 1024 * 1024:  # 50MB max
+        return JSONResponse({"error": "Dosya boyutu 50MB'dan buyuk olamaz."}, status_code=400)
+
+    filename = file.filename or "document.eyp"
+    if not (filename.lower().endswith(".eyp") or filename.lower().endswith(".udf")):
+        return JSONResponse({"error": "Sadece .eyp ve .udf dosyalari yuklenebilir."}, status_code=400)
+
+    try:
+        belge = uyap_parser.parse_eyp(content_bytes)
+        md = uyap_parser.to_markdown(belge)
+
+        return JSONResponse({
+            "filename": filename,
+            "markdown": md[:10000],
+            "full_markdown_length": len(md),
+            "belge": {
+                "konu": belge.konu,
+                "belge_no": belge.belge_no,
+                "tarih": belge.tarih,
+                "olusturan_adi": belge.olusturan_adi,
+                "taraflar": [{"ad": t.ad, "tckn": t.tckn, "rol": t.rol} for t in belge.taraflar],
+                "imzalar": [{"ad": i.imzalayan_ad + " " + i.imzalayan_soyad, "makam": i.makam, "tarih": i.tarih} for i in belge.imzalar],
+                "ekler": [{"dosya_adi": e.dosya_adi, "tur": e.tur, "mime": e.mime_turu} for e in belge.ekler],
+                "dosya_bilgisi": {"dosya_no": belge.dosya_bilgisi.dosya_no, "dosya_tur": belge.dosya_bilgisi.dosya_tur, "birim": belge.dosya_bilgisi.birim_adi} if belge.dosya_bilgisi else None,
+                "referanslar": belge.referanslar,
+                "ust_yazi_metin_length": len(belge.ust_yazi_metin),
+                "ek_metin_count": len(belge.ek_metinler),
+            },
+        })
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": f"UYAP parse hatasi: {str(e)}"}, status_code=500)
+
+
 async def chat_endpoint(request):
     """Chat endpoint — BYOK LLM + MCP araçları ile yanıt üretir.
 
@@ -1809,6 +2009,7 @@ starlette_app = Starlette(
         Route("/api/chat/status", llm_status_endpoint, methods=["GET"]),
         Route("/api/upload/pdf", upload_pdf_endpoint, methods=["POST"]),
         Route("/api/search/refs", search_document_refs_endpoint, methods=["POST"]),
+        Route("/api/upload/uyap", upload_uyap_endpoint, methods=["POST"]),
         Mount("/", app=mcp_asgi),
     ],
     lifespan=mcp_asgi.lifespan if hasattr(mcp_asgi, 'lifespan') else None,
