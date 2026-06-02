@@ -15,8 +15,8 @@ import os
 import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
-# Proje kök dizini
-PROJECT_ROOT = os.path.dirname(os.path.abspath(SPECPATH))
+# Proje kök dizini — pyinstaller'in çalıştığı dizin
+PROJECT_ROOT = os.getcwd()
 
 # ── Hidden imports ──
 # PyInstaller'ın otomatik bulamayacağı modüller
