@@ -165,6 +165,23 @@ for pkg in ["pydantic", "cryptography", "httpx", "h2", "hpack", "fastmcp", "uvic
     except Exception:
         pass
 
+# magika model dosyaları (BDDK, Sigorta Tahkim, Borsa modülleri için gerekli)
+try:
+    import magika
+    magika_dir = os.path.dirname(magika.__file__)
+    magika_models = os.path.join(magika_dir, "models", "standard_v3_3")
+    if os.path.isdir(magika_models):
+        datas.append((magika_models, "magika/models/standard_v3_3"))
+        print(f"[OK] magika models bulundu: {magika_models}")
+    else:
+        print(f"[WARN] magika models dizini yok: {magika_models}")
+    # content_types_kb dosyası
+    ct_kb = os.path.join(magika_dir, "config", "content_types_kb.min.json")
+    if os.path.isfile(ct_kb):
+        datas.append((os.path.dirname(ct_kb), "magika/config"))
+except ImportError:
+    print("[WARN] magika paketi yüklü değil — BDDK/Sigorta Tahkim/Borsa modülleri çalışmayabilir")
+
 # ── Analysis ──
 a = Analysis(
     [os.path.join(PROJECT_ROOT, "local_run.py")],
@@ -209,11 +226,11 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # GUI uygulaması (konsol penceresi yok)
+    console=True,  # Konsol bootloader (güvenilir) — local_run.py konsolu gizler
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # TODO: Türkiye bayrağı .ico dosyası eklenecek
+    icon='T_MCP.ico',  # TODO: Türkiye bayrağı .ico dosyası eklenecek
 )

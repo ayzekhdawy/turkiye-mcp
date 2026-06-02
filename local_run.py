@@ -17,62 +17,181 @@ Kullanım:
 
 import os
 import sys
+
+# ── EN ERKEN crash tespiti ──
+if getattr(sys, 'frozen', False):
+    _early_log = os.path.join(os.path.dirname(sys.executable), "turkiye_mcp_early.txt")
+else:
+    _early_log = os.path.join(os.getcwd(), "turkiye_mcp_early.txt")
+
+try:
+    with open(_early_log, "w", encoding="utf-8") as _f:
+        _f.write(f"Python started OK\nfrozen={getattr(sys, 'frozen', False)}\nexe={sys.executable}\n")
+except Exception as _e:
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, f"Early crash: {_e}", "TurkiyeMCP", 0x10)
+    except Exception:
+        pass
+
 import threading
 import logging
 import time
+import traceback
+from pathlib import Path
+
+
+def hide_console():
+    """Windows konsol penceresini gizle (GUI uygulaması görünümü için).
+
+    console=True ile build edip, başlatma sonrası konsol penceresini
+    gizleriz. Bu pythonw.exe (console=False) bootloader sorunlarını
+    önler ve hata ayıklamayı kolaylaştırır.
+    """
+    if sys.platform == "win32" and getattr(sys, 'frozen', False):
+        try:
+            import ctypes
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+        except Exception:
+            pass
 
 # Windows konsol encoding sorunu çözümü
 if sys.platform == "win32":
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        if sys.stdout:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if sys.stderr:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+# ── Dosya yolları ──
+if getattr(sys, 'frozen', False):
+    _EXE_DIR = Path(sys.executable).parent
+else:
+    _EXE_DIR = Path.cwd()
+
+_CRASH_LOG = _EXE_DIR / "turkiye_mcp_crash.log"
+
+
+def _log_crash(msg: str):
+    """Kritik hataları crash log dosyasına yaz."""
+    try:
+        with open(_CRASH_LOG, "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"CRASH: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"{'='*60}\n")
+            f.write(msg)
+            f.write("\n")
+    except Exception:
+        pass
+
+
+# Top-level exception yakalayıcı — EXE sessizce çökmesin
+def _global_excepthook(exc_type, exc_value, exc_tb):
+    """Yakalanmamış hataları logla ve crash dosyasına yaz."""
+    tb = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    _log_crash(f"UNHANDLED EXCEPTION:\n{tb}")
+    try:
+        logger.error(f"YAKALANMAMIS HATA: {tb}")
+    except Exception:
+        pass
+
+
+sys.excepthook = _global_excepthook
 
 # Yerel mod bayrağı — app.py bunu kontrol eder
 os.environ["TURKIYE_MCP_LOCAL"] = "1"
 
-# Logging
+# ── Logging ──
+# console=False (pythonw.exe) modunda sys.stdout/sys.stderr None olur
+# Bu yüzden FileHandler kullanıyoruz, konsola da yazabildiğimiz kadar yazıyoruz
+_log_file = _EXE_DIR / "turkiye_mcp.log"
+
+
+class FileAndConsoleHandler(logging.FileHandler):
+    """Dosyaya yazar, konsola da yazabildiğimiz kadar yazar.
+
+    console=False ile EXE çalıştığında sys.stdout/sys.stderr None olabilir.
+    FileHandler taban sınıfı, StreamHandler'den farklı olarak __init__'te
+    sys.stderr'e başvurmaz — bu yüzden güvenlidir.
+    """
+    def emit(self, record):
+        # Önce dosyaya yaz (FileHandler.emit)
+        try:
+            super().emit(record)
+        except Exception:
+            pass
+        # Konsola yaz (varsa)
+        try:
+            msg = self.format(record) + "\n"
+            stream = sys.stderr or sys.stdout
+            if stream and hasattr(stream, 'write'):
+                stream.write(msg)
+                stream.flush()
+        except Exception:
+            pass
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-    ],
+    handlers=[FileAndConsoleHandler(str(_log_file), encoding="utf-8")],
 )
 logger = logging.getLogger("turkiye_mcp.local")
+
+logger.info(f"Türkiye MCP başlatılıyor... EXE dizini: {_EXE_DIR}")
+logger.info(f"Crash log: {_CRASH_LOG}")
+logger.info(f"Runtime log: {_log_file}")
 
 PORT = 8080
 HOST = "127.0.0.1"
 
 
-def wait_for_server(host: str, port: int, timeout: float = 30.0) -> bool:
-    """Sunucunun hazır olmasını bekle."""
+def wait_for_server(host: str, port: int, timeout: float = 120.0) -> bool:
+    """Sunucunun hazır olmasını bekle.
+
+    Modüllerin yüklenmesi uzun sürebildiği için timeout 120 saniyeye çıkarıldı.
+    """
     import httpx
     start = time.time()
+    logger.info(f"Sunucu bekleniyor (timeout: {timeout}s)...")
     while time.time() - start < timeout:
         try:
             resp = httpx.get(f"http://{host}:{port}/health", timeout=2)
             if resp.status_code == 200:
-                logger.info("[OK] Sunucu hazir!")
+                elapsed = time.time() - start
+                logger.info(f"[OK] Sunucu hazır! ({elapsed:.1f}s)")
                 return True
         except Exception:
             time.sleep(0.5)
-    logger.error("[FAIL] Sunucu baslatilamadi (timeout).")
+        # Her 10 saniyede durum bildir
+        elapsed = time.time() - start
+        if int(elapsed) % 10 == 0 and elapsed > 1:
+            logger.info(f"Sunucu hala bekleniyor... ({elapsed:.0f}s)")
+    logger.error(f"[FAIL] Sunucu başlatılamadı (timeout: {timeout}s).")
+    _log_crash(f"Server failed to start within {timeout}s\nCheck turkiye_mcp.log for details")
     return False
 
 
 def start_server(host: str, port: int):
-    """ASGI sunucusunu baslat (ayri thread'de)."""
-    import uvicorn
-    from app import starlette_app
-    logger.info(f"Sunucu baslatiliyor: {host}:{port}")
-    uvicorn.run(starlette_app, host=host, port=port, log_level="warning")
+    """ASGI sunucusunu başlat (ayrı thread'de)."""
+    try:
+        import uvicorn
+        from app import starlette_app
+        logger.info(f"Sunucu başlatılıyor: {host}:{port}")
+        uvicorn.run(starlette_app, host=host, port=port, log_level="warning")
+    except Exception as e:
+        tb = traceback.format_exc()
+        logger.error(f"Sunucu başlatma hatası: {tb}")
+        _log_crash(f"Server start error:\n{tb}")
 
 
 def create_tray_icon(on_quit):
-    """Sistem tepsisi ikonu olustur.
+    """Sistem tepsisi ikonu oluştur.
 
     Returns:
         pystray.Icon or None (pystray yoksa)
@@ -81,18 +200,21 @@ def create_tray_icon(on_quit):
         from PIL import Image, ImageDraw
         import pystray
     except ImportError:
-        logger.warning("pystray veya Pillow yuklu degil -- sistem tepsisi ikonu devre disi.")
+        logger.warning("pystray veya Pillow yüklü değil -- sistem tepsisi ikonu devre dışı.")
+        return None
+    except Exception as e:
+        logger.warning(f"Sistem tepsisi ikonu oluşturulamadı: {e}")
         return None
 
-    # Turkiye bayragi ikonu olustur (64x64)
+    # Türkiye bayrağı ikonu oluştur (64x64)
     img = Image.new("RGB", (64, 64), "#E30A17")
     draw = ImageDraw.Draw(img)
 
-    # Hilal (yarim ay) -- beyaz daire + kirmizi daire
+    # Hilal (yarım ay) -- beyaz daire + kırmızı daire
     draw.ellipse([4, 4, 52, 60], fill="#FFFFFF")
     draw.ellipse([12, 4, 56, 56], fill="#E30A17")
 
-    # Yildiz
+    # Yıldız
     star_points = [
         (36, 16), (39, 26), (50, 26), (41, 33),
         (44, 44), (36, 37), (28, 44), (31, 33),
@@ -101,19 +223,19 @@ def create_tray_icon(on_quit):
     draw.polygon(star_points, fill="#FFFFFF")
 
     menu = pystray.Menu(
-        pystray.MenuItem("Goster", on_show, default=True),
+        pystray.MenuItem("Göster", on_show, default=True),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Tarayicida Ac", lambda icon, item: _open_browser(f"http://{HOST}:{PORT}")),
+        pystray.MenuItem("Tarayıcıda Aç", lambda icon, item: _open_browser(f"http://{HOST}:{PORT}")),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Kapat", on_quit),
     )
 
-    icon = pystray.Icon("turkiye_mcp", img, "Turkiye MCP Server", menu)
+    icon = pystray.Icon("turkiye_mcp", img, "Türkiye MCP Server", menu)
     return icon
 
 
 def on_show(icon, item):
-    """Pencereyi tekrar goster."""
+    """Pencereyi tekrar göster."""
     global _webview_window
     if _webview_window:
         try:
@@ -123,7 +245,7 @@ def on_show(icon, item):
 
 
 def _open_browser(url: str):
-    """URL'i tarayicida ac."""
+    """URL'i tarayıcıda aç."""
     import webbrowser
     webbrowser.open(url)
 
@@ -131,16 +253,118 @@ def _open_browser(url: str):
 _webview_window = None
 
 
+def show_loading_window():
+    """Yükleme penceresi göster — sunucu hazır olana kadar."""
+    try:
+        import webview
+        loading_html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body {
+                    background: #0a0f1a;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    font-family: 'Segoe UI', system-ui, sans-serif;
+                    color: #e2e8f0;
+                    overflow: hidden;
+                }
+                .container {
+                    text-align: center;
+                    padding: 40px;
+                }
+                .flag { font-size: 72px; margin-bottom: 20px; }
+                h1 {
+                    font-size: 28px;
+                    color: #f8fafc;
+                    margin-bottom: 8px;
+                }
+                .subtitle {
+                    font-size: 14px;
+                    color: #64748b;
+                    margin-bottom: 40px;
+                }
+                .loader {
+                    width: 48px;
+                    height: 48px;
+                    border: 4px solid #1e293b;
+                    border-top: 4px solid #6366f1;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin: 0 auto 24px;
+                }
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                .status {
+                    font-size: 13px;
+                    color: #94a3b8;
+                }
+                .pulse {
+                    animation: pulse 2s ease-in-out infinite;
+                }
+                @keyframes pulse {
+                    0%, 100% { opacity: 0.5; }
+                    50% { opacity: 1; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="flag">🇹🇷</div>
+                <h1>Türkiye MCP Server</h1>
+                <p class="subtitle">Modüller yükleniyor, lütfen bekleyin...</p>
+                <div class="loader"></div>
+                <p class="status pulse">Sunucu başlatılıyor</p>
+            </div>
+        </body>
+        </html>
+        """
+        # Yükleme penceresini data URL ile aç
+        import base64
+        data_uri = "data:text/html;base64," + base64.b64encode(loading_html.encode()).decode()
+
+        loading_window = webview.create_window(
+            title="Türkiye MCP — Yükleniyor...",
+            url=data_uri,
+            width=500,
+            height=350,
+            resizable=False,
+            frameless=False,
+        )
+        # Arka planda çalıştır (bloke etmesin)
+        webview.start(debug=False, http_server=False)
+        return loading_window
+    except Exception as e:
+        logger.warning(f"Yükleme penceresi oluşturulamadı: {e}")
+        return None
+
+
 def run_webview(host: str, port: int):
-    """pywebview penceresi ac ve calistir."""
-    import webview
+    """pywebview penceresi aç ve çalıştır."""
+    try:
+        import webview
+    except ImportError:
+        logger.warning("pywebview yüklü değil — tarayıcıda açılıyor...")
+        _open_browser(f"http://{host}:{port}")
+        return
+    except Exception as e:
+        logger.error(f"pywebview hatası: {e}")
+        _log_crash(f"pywebview import error: {e}\nFalling back to browser mode")
+        _open_browser(f"http://{host}:{port}")
+        return
 
     url = f"http://{host}:{port}"
-    logger.info(f"Pencere aciliyor: {url}")
+    logger.info(f"Pencere açılıyor: {url}")
 
     global _webview_window
     _webview_window = webview.create_window(
-        title="Turkiye MCP Server",
+        title="🇹🇷 Türkiye MCP Server",
         url=url,
         width=1280,
         height=900,
@@ -148,16 +372,27 @@ def run_webview(host: str, port: int):
     )
 
     def on_closed():
-        logger.info("Pencere kapatildi -- sunucu arka planda calismaya devam ediyor.")
+        logger.info("Pencere kapatıldı -- sunucu arka planda çalışmaya devam ediyor.")
 
-    webview.start(on_closed=on_closed)
+    try:
+        # pywebview 6.x: on_closed events.window event olarak verilir
+        try:
+            webview.start(on_closed=on_closed)
+        except TypeError:
+            # pywebview eski/yeni sürüm — on_closed parametresiz dene
+            webview.start()
+    except Exception as e:
+        logger.error(f"pywebview çalışma hatası: {e}")
+        _log_crash(f"pywebview runtime error: {e}")
+        # Fallback: tarayıcıda aç
+        _open_browser(url)
 
 
 def run_browser(host: str, port: int, tray_icon=None):
-    """Dashboard'u tarayicida ac."""
+    """Dashboard'u tarayıcıda aç."""
     url = f"http://{host}:{port}"
     _open_browser(url)
-    logger.info(f"Dashboard tarayicida acildi: {url}")
+    logger.info(f"Dashboard tarayıcıda açıldı: {url}")
 
     if tray_icon:
         tray_icon.run()
@@ -167,51 +402,91 @@ def run_browser(host: str, port: int, tray_icon=None):
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
-            logger.info("Sunucu kapatiliyor (Ctrl+C)...")
+            logger.info("Sunucu kapatılıyor (Ctrl+C)...")
 
 
 def main():
-    """Ana giris noktasi."""
+    """Ana giriş noktası."""
+    try:
+        _main_inner()
+    except Exception as e:
+        tb = traceback.format_exc()
+        logger.error(f"KRİTİK HATA: {tb}")
+        _log_crash(f"CRITICAL ERROR in main():\n{tb}")
+        # Son çare: hata mesajı göster (messagebox)
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"Türkiye MCP Server başlatılamadı.\n\nHata detayları: {_CRASH_LOG}\n\n{str(e)[:200]}",
+                "Türkiye MCP — Hata",
+                0x10,  # MB_ICONERROR
+            )
+        except Exception:
+            pass
+        sys.exit(1)
+
+
+def _main_inner():
+    """Ana mantık — main() tarafından sarılır."""
     import argparse
     parser = argparse.ArgumentParser(
-        description="Turkiye MCP Server -- Yerel Masaustu Uygulamasi",
+        description="Türkiye MCP Server — Yerel Masaüstü Uygulaması",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Ornekler:
-  python local_run.py              # GUI ile baslat
+Örnekler:
+  python local_run.py              # GUI ile başlat
   python local_run.py --no-gui    # Sadece sunucu
-  python local_run.py --browser    # Tarayicida ac
-  python local_run.py --port 9090  # Farkli port
+  python local_run.py --browser    # Tarayıcıda aç
+  python local_run.py --port 9090  # Farklı port
         """,
     )
-    parser.add_argument("--no-gui", action="store_true", help="GUI penceresini acma, sadece sunucuyu baslat")
-    parser.add_argument("--port", type=int, default=PORT, help=f"Sunucu portu (varsayilan: {PORT})")
-    parser.add_argument("--browser", action="store_true", help="pywebview yerine tarayicida ac")
-    parser.add_argument("--no-tray", action="store_true", help="Sistem tepsisi ikonunu devre disi birak")
+    parser.add_argument("--no-gui", action="store_true", help="GUI penceresini açma, sadece sunucuyu başlat")
+    parser.add_argument("--port", type=int, default=PORT, help=f"Sunucu portu (varsayılan: {PORT})")
+    parser.add_argument("--browser", action="store_true", help="pywebview yerine tarayıcıda aç")
+    parser.add_argument("--no-tray", action="store_true", help="Sistem tepsisi ikonunu devre dışı bırak")
+    parser.add_argument("--debug", action="store_true", help="Konsol penceresini göster (hata ayıklama)")
     args = parser.parse_args()
 
     port = args.port
 
-    # -- 1. Sunucuyu arka planda baslat --
+    # -- 0. Konsol penceresini gizle (debug değilse) --
+    if not args.debug and not args.no_gui:
+        hide_console()
+
+    logger.info(f"Başlatma parametreleri: port={port}, no_gui={args.no_gui}, browser={args.browser}, no_tray={args.no_tray}")
+
+    # -- 1. Sunucuyu arka planda başlat --
+    logger.info("Sunucu thread'i başlatılıyor...")
     server_thread = threading.Thread(
         target=start_server, args=(HOST, port), daemon=True
     )
     server_thread.start()
-    logger.info("Sunucu thread'i baslatildi, hazir olmasi bekleniyor...")
+    logger.info("Sunucu thread'i başlatıldı, hazır olması bekleniyor...")
 
-    # -- 2. Sunucunun hazir olmasini bekle --
-    if not wait_for_server(HOST, port):
-        logger.error("Sunucu baslatilamadi. Cikiliyor...")
+    # -- 2. Sunucunun hazır olmasını bekle --
+    if not wait_for_server(HOST, port, timeout=120.0):
+        logger.error("Sunucu başlatılamadı. Çıkılıyor...")
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"Sunucu başlatılamadı (timeout).\n\nDetaylar için: {_CRASH_LOG}",
+                "Türkiye MCP — Hata",
+                0x10,
+            )
+        except Exception:
+            pass
         sys.exit(1)
 
     # -- 3. --no-gui modu --
     if args.no_gui:
-        logger.info(f"--no-gui modu: Sunucu calisiyor -> http://{HOST}:{port}")
-        logger.info("Durdurmak icin Ctrl+C basin.")
+        logger.info(f"--no-gui modu: Sunucu çalışıyor -> http://{HOST}:{port}")
+        logger.info("Durdurmak için Ctrl+C basın.")
         try:
             server_thread.join()
         except KeyboardInterrupt:
-            logger.info("Sunucu kapatiliyor...")
+            logger.info("Sunucu kapatılıyor...")
         return
 
     # -- 4. Sistem tepsisi ikonu --
@@ -219,27 +494,27 @@ Ornekler:
     if not args.no_tray:
         tray_icon = create_tray_icon(on_quit=lambda icon, item: os._exit(0))
 
-    # -- 5. GUI veya tarayici --
+    # -- 5. GUI veya tarayıcı --
     if args.browser or tray_icon is None:
-        # Tarayicida ac
+        # Tarayıcıda aç
         run_browser(HOST, port, tray_icon)
     else:
         # pywebview penceresi + sistem tepsisi
-        # Once tray ikonunu arka planda baslat
+        # Önce tray ikonunu arka planda başlat
         tray_thread = threading.Thread(target=tray_icon.run, daemon=True)
         tray_thread.start()
-        logger.info("Sistem tepsisi ikonu olusturuldu.")
+        logger.info("Sistem tepsisi ikonu oluşturuldu.")
 
-        # pywebview penceresini ac (bloke eder)
+        # pywebview penceresini aç (bloke eder)
         run_webview(HOST, port)
 
-        # Pencere kapatildiktan sonra sunucu devam eder
-        logger.info("Pencere kapatildi. Sunucu arka planda calismaya devam ediyor.")
-        logger.info("Sistem tepsisi ikonundan 'Kapat' secenegini kullanarak cikabilirsiniz.")
+        # Pencere kapatıldıktan sonra sunucu devam eder
+        logger.info("Pencere kapatıldı. Sunucu arka planda çalışmaya devam ediyor.")
+        logger.info("Sistem tepsisi ikonundan 'Kapat' seçeneğini kullanarak çıkabilirsiniz.")
         try:
             server_thread.join()
         except KeyboardInterrupt:
-            logger.info("Sunucu kapatiliyor...")
+            logger.info("Sunucu kapatılıyor...")
 
 
 if __name__ == "__main__":
