@@ -44,12 +44,19 @@ dependencies = [
 production = [
     "gunicorn>=22.0.0",
 ]
+desktop = [
+    "pywebview>=5.3.0",
+    "pystray>=0.19.5",
+    "Pillow>=10.0.0",
+    "keyring>=25.0.0",
+]
 
 [project.scripts]
 turkiye-mcp = "app:main"
+turkiye-mcp-local = "local_run:main"
 
 [tool.setuptools]
-py-modules = ["app", "server"]
+py-modules = ["app", "server", "local_run"]
 
 [tool.setuptools.packages.find]
 include = ["*_module", "providers", "providers.*", "models", "models.*", "borsa_models", "borsa_models.*"]

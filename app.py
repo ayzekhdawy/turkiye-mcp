@@ -12,6 +12,8 @@ import os
 import json
 import logging
 import time
+import re
+import tempfile
 from collections import defaultdict
 from datetime import date
 from typing import Optional, List
@@ -670,20 +672,65 @@ KYB              — Kanun Yararına Bozma</div>
   </div>
 
   <div class="section">
+    <h2>📄 Belge Yükle (PDF)</h2>
+    <div class="card" id="pdf-section">
+      <p style="color:#94a3b8;margin-bottom:1rem;">PDF dosyasi yukleyin, belge metni cikarilir ve hukuki referans numaralari (esas no, karar no, RG sayisi, VKN/TCKN vb.) otomatik tespit edilir. Tespit edilen referanslari MCP araclariyla arayabilirsiniz.</p>
+      <div id="pdf-drop-zone" style="border:2px dashed #334155;border-radius:12px;padding:2rem;text-align:center;cursor:pointer;transition:border-color 0.3s,background 0.3s;" onmouseover="this.style.borderColor='#60a5fa'" onmouseout="this.style.borderColor='#334155'" onclick="document.getElementById('pdf-file-input').click()">
+        <div style="font-size:2.5rem;margin-bottom:0.5rem;">📁</div>
+        <div style="color:#94a3b8;font-size:0.95rem;">PDF dosyasi surukleyip birakin veya tiklayin</div>
+        <div style="color:#64748b;font-size:0.8rem;margin-top:0.25rem;">Maks 20MB</div>
+        <input type="file" id="pdf-file-input" accept=".pdf" style="display:none;" onchange="uploadPdf(this.files[0])" />
+      </div>
+      <div id="pdf-progress" style="display:none;margin-top:1rem;padding:0.75rem;background:#1a2744;border-radius:8px;">
+        <div style="color:#60a5fa;">Yukleniyor...</div>
+        <div style="height:4px;background:#334155;border-radius:2px;margin-top:0.5rem;"><div id="pdf-progress-bar" style="height:100%;background:linear-gradient(135deg,#e11d48,#f59e0b);border-radius:2px;width:0%;transition:width 0.3s;"></div></div>
+      </div>
+      <div id="pdf-result" style="display:none;margin-top:1rem;"></div>
+      <div id="pdf-refs" style="display:none;margin-top:1rem;"></div>
+    </div>
+  </div>
+
+  <div class="section">
     <h2>💬 Soru Sor (AI Asistan)</h2>
     <div class="card" id="chat-section">
-      <p style="color:#94a3b8;margin-bottom:1rem;">Türk hukuk, mali, ihale ve piyasa verileri hakkında soru sorun. MCP araçları ile veri toplanır, OpenRouter AI ile yanıtlanır.</p>
+      <!-- LLM Yapilandirma Paneli -->
+      <div id="llm-config" style="margin-bottom:1rem;padding:1rem;background:#0f172a;border-radius:8px;border:1px solid #334155;">
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+          <span style="font-size:1.1rem;font-weight:600;color:#f1f5f9;">🤖 AI Yapılandırma</span>
+          <span id="llm-status-badge" style="padding:0.15rem 0.5rem;border-radius:9999px;font-size:0.75rem;font-weight:600;background:#450a0a;color:#f87171;">API Key Gerekli</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">
+          <select id="llm-provider" onchange="onProviderChange()" style="padding:0.5rem;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:0.9rem;min-width:160px;">
+            <option value="openrouter">OpenRouter</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="ollama">Ollama (Yerel)</option>
+          </select>
+          <select id="llm-model" style="padding:0.5rem;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:0.9rem;min-width:180px;">
+          </select>
+        </div>
+        <div id="api-key-row" style="display:flex;gap:0.5rem;">
+          <input type="password" id="llm-api-key" placeholder="API anahtarinizi girin..." style="flex:1;padding:0.5rem;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:0.9rem;" />
+          <button onclick="saveConfig()" style="padding:0.5rem 1rem;border-radius:6px;border:none;background:#059669;color:#fff;font-weight:600;cursor:pointer;font-size:0.85rem;">Kaydet</button>
+        </div>
+        <div id="ollama-info" style="display:none;margin-top:0.5rem;font-size:0.85rem;color:#94a3b8;">
+          Ollama yerel LLM kullanimi icin Ollama'in calistigindan emin olun: <code style="background:#334155;padding:0.15rem 0.35rem;border-radius:4px;">ollama serve</code>
+        </div>
+      </div>
+
+      <p style="color:#94a3b8;margin-bottom:1rem;">Turk hukuk, mali, ihale ve piyasa verileri hakkinda soru sorun. MCP araclari ile veri toplanir, AI ile yanitlanir.</p>
       <div id="chat-messages" style="max-height:400px;overflow-y:auto;margin-bottom:1rem;padding:0.5rem;background:#0f172a;border-radius:8px;min-height:100px;"></div>
       <div style="display:flex;gap:0.5rem;">
-        <input type="text" id="chat-input" placeholder='Örnek: "2025 asgari ücret ne kadar?" veya "Yargıtay mülkiyet kararları"' style="flex:1;padding:0.75rem;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:0.95rem;" maxlength="500" />
-        <button id="chat-btn" onclick="sendChat()" style="padding:0.75rem 1.5rem;border-radius:8px;border:none;background:linear-gradient(135deg,#e11d48,#f59e0b);color:#fff;font-weight:600;cursor:pointer;font-size:0.95rem;">Gönder</button>
+        <input type="text" id="chat-input" placeholder='Ornek: "2025 asgari ucret ne kadar?" veya "Yargitay mulkiyet kararlari"' style="flex:1;padding:0.75rem;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;font-size:0.95rem;" maxlength="500" />
+        <button id="chat-btn" onclick="sendChat()" style="padding:0.75rem 1.5rem;border-radius:8px;border:none;background:linear-gradient(135deg,#e11d48,#f59e0b);color:#fff;font-weight:600;cursor:pointer;font-size:0.95rem;">Gonder</button>
       </div>
       <div id="chat-limit" style="margin-top:0.5rem;font-size:0.8rem;color:#64748b;"></div>
     </div>
   </div>
 
   <footer>
-    <p>🇹🇷 Türkiye MCP Server v1.0.0 — <a href="https://github.com/ayzekhdawy/turkiye-mcp">GitHub</a></p>
+    <p>Turkiye MCP Server v1.0.0 — <a href="https://github.com/ayzekhdawy/turkiye-mcp">GitHub</a></p>
   </footer>
 </div>
 
@@ -693,6 +740,117 @@ document.getElementById('sse-url').textContent = base + '/sse';
 document.getElementById('sse-url-inline').textContent = base;
 document.getElementById('sse-url-cli').textContent = base;
 document.getElementById('sse-url-cursor').textContent = base;
+
+// Provider config
+const PROVIDERS = {
+  openrouter: { name: "OpenRouter", needs_key: true, models: ["openai/gpt-4o-mini","anthropic/claude-3.5-sonnet","google/gemini-2.0-flash","meta-llama/llama-3.1-8b-instruct"], default_model: "openai/gpt-4o-mini" },
+  openai: { name: "OpenAI", needs_key: true, models: ["gpt-4o-mini","gpt-4o","gpt-4-turbo"], default_model: "gpt-4o-mini" },
+  anthropic: { name: "Anthropic", needs_key: true, models: ["claude-sonnet-4-20250514","claude-haiku-4-20250414"], default_model: "claude-haiku-4-20250414" },
+  gemini: { name: "Google Gemini", needs_key: true, models: ["gemini-2.0-flash","gemini-1.5-pro"], default_model: "gemini-2.0-flash" },
+  ollama: { name: "Ollama (Yerel)", needs_key: false, models: ["llama3.2","llama3.1","mistral","qwen2.5","gemma2"], default_model: "llama3.2" },
+};
+
+let currentProvider = localStorage.getItem('llm-provider') || 'openrouter';
+let currentModel = localStorage.getItem('llm-model') || '';
+let savedApiKey = localStorage.getItem('llm-api-key') || '';
+
+function onProviderChange() {
+  const sel = document.getElementById('llm-provider');
+  currentProvider = sel.value;
+  updateModelDropdown();
+  updateApiKeyVisibility();
+  localStorage.setItem('llm-provider', currentProvider);
+}
+
+function updateModelDropdown() {
+  const modelSel = document.getElementById('llm-model');
+  const provider = PROVIDERS[currentProvider];
+  modelSel.innerHTML = '';
+  provider.models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    if (m === (currentModel || provider.default_model)) opt.selected = true;
+    modelSel.appendChild(opt);
+  });
+  currentModel = modelSel.value;
+  localStorage.setItem('llm-model', currentModel);
+}
+
+function updateApiKeyVisibility() {
+  const provider = PROVIDERS[currentProvider];
+  const keyRow = document.getElementById('api-key-row');
+  const ollamaInfo = document.getElementById('ollama-info');
+  if (provider.needs_key) {
+    keyRow.style.display = 'flex';
+    ollamaInfo.style.display = 'none';
+  } else {
+    keyRow.style.display = 'none';
+    ollamaInfo.style.display = 'block';
+  }
+  updateStatusBadge();
+}
+
+function updateStatusBadge() {
+  const badge = document.getElementById('llm-status-badge');
+  const provider = PROVIDERS[currentProvider];
+  if (!provider.needs_key) {
+    badge.textContent = 'Yerel LLM';
+    badge.style.background = '#064e3b';
+    badge.style.color = '#34d399';
+  } else if (savedApiKey) {
+    badge.textContent = provider.name + ' - Key Var';
+    badge.style.background = '#064e3b';
+    badge.style.color = '#34d399';
+  } else {
+    badge.textContent = 'API Key Gerekli';
+    badge.style.background = '#450a0a';
+    badge.style.color = '#f87171';
+  }
+}
+
+async function saveConfig() {
+  const provider = document.getElementById('llm-provider').value;
+  const model = document.getElementById('llm-model').value;
+  const apiKey = document.getElementById('llm-api-key').value.trim();
+
+  if (PROVIDERS[provider].needs_key && !apiKey && !savedApiKey) {
+    alert('Bu saglayici icin API anahtari gerekli!');
+    return;
+  }
+
+  // Yerel keyring'e kaydet
+  try {
+    const res = await fetch('/api/chat/configure', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider, api_key: apiKey, model })
+    });
+    const data = await res.json();
+    if (data.error && !data.error.includes('yerel mod')) {
+      // Yerel modda degilse localStorage'a kaydet
+    }
+  } catch(e) {}
+
+  // localStorage'a da kaydet (fallback)
+  if (apiKey) {
+    savedApiKey = apiKey;
+    localStorage.setItem('llm-api-key', apiKey);
+  }
+  currentProvider = provider;
+  currentModel = model;
+  localStorage.setItem('llm-provider', provider);
+  localStorage.setItem('llm-model', model);
+
+  updateStatusBadge();
+  document.getElementById('llm-api-key').value = '';
+  addMsg('system', 'Yapilandirma kaydedildi: ' + PROVIDERS[provider].name + ' / ' + model);
+}
+
+// Initialize
+document.getElementById('llm-provider').value = currentProvider;
+updateModelDropdown();
+updateApiKeyVisibility();
 
 // Module status
 (async function() {
@@ -710,7 +868,7 @@ document.getElementById('sse-url-cursor').textContent = base;
       }
     }
   } catch(e) {
-    document.getElementById('status-grid').innerHTML = '<div class="status-fail">Sunucu durumu alınamadı</div>';
+    document.getElementById('status-grid').innerHTML = '<div class="status-fail">Sunucu durumu alinamadi</div>';
   }
 })();
 
@@ -723,7 +881,7 @@ const chatLimit = document.getElementById('chat-limit');
 
 function addMsg(role, text) {
   const div = document.createElement('div');
-  div.style.cssText = 'margin:0.5rem 0;padding:0.75rem;border-radius:8px;white-space:pre-wrap;font-size:0.9rem;max-width:90%;' + (role==='user' ? 'background:#1e3a5f;margin-left:auto;text-align:right;' : 'background:#1a2744;margin-right:auto;');
+  div.style.cssText = 'margin:0.5rem 0;padding:0.75rem;border-radius:8px;white-space:pre-wrap;font-size:0.9rem;max-width:90%;' + (role==='user' ? 'background:#1e3a5f;margin-left:auto;text-align:right;' : role==='system' ? 'background:#334155;color:#94a3b8;margin-right:auto;' : 'background:#1a2744;margin-right:auto;');
   div.textContent = text;
   chatMessages.appendChild(div);
   chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -736,33 +894,183 @@ async function sendChat() {
   addMsg('user', msg);
   chatBtn.disabled = true;
   chatBtn.textContent = '...';
-  addMsg('system', '⏳ Veriler alınıyor...');
+
+  const provider = document.getElementById('llm-provider').value;
+  const model = document.getElementById('llm-model').value;
+  const apiKey = savedApiKey || localStorage.getItem('llm-api-key') || '';
+
+  addMsg('system', 'Veriler aliniyor... (' + PROVIDERS[provider].name + ')');
   try {
+    const headers = {'Content-Type': 'application/json'};
+    if (apiKey && PROVIDERS[provider].needs_key) {
+      headers['X-API-Key'] = apiKey;
+      headers['X-LLM-Provider'] = provider;
+      headers['X-LLM-Model'] = model;
+    } else if (!PROVIDERS[provider].needs_key) {
+      headers['X-LLM-Provider'] = provider;
+      headers['X-LLM-Model'] = model;
+    }
     const res = await fetch('/api/chat', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({message: msg})
+      headers,
+      body: JSON.stringify({message: msg, provider, api_key: apiKey, model})
     });
     const data = await res.json();
     chatMessages.lastChild.remove(); // remove loading
     if (data.error) {
-      addMsg('assistant', '❌ ' + data.error);
+      if (data.needs_key) {
+        addMsg('assistant', 'Lutfen once bir API anahtari girin. Saglayici: ' + (data.provider || provider));
+      } else {
+        addMsg('assistant', 'Hata: ' + data.error);
+      }
     } else {
       addMsg('assistant', data.response);
     }
     chatRemaining = data.remaining;
-    chatLimit.textContent = data.remaining !== undefined ? `Kalan istek hakkı: ${data.remaining}/${10}` : '';
+    chatLimit.textContent = data.remaining !== undefined ? 'Kalan istek hakki: ' + data.remaining + '/10' : '';
   } catch(e) {
     chatMessages.lastChild.remove();
-    addMsg('assistant', '❌ Bağlantı hatası.');
+    addMsg('assistant', 'Baglanti hatasi.');
   }
   chatBtn.disabled = false;
-  chatBtn.textContent = 'Gönder';
+  chatBtn.textContent = 'Gonder';
 }
 
 chatInput.addEventListener('keydown', function(e) {
   if (e.key === 'Enter') sendChat();
 });
+
+document.getElementById('llm-model').addEventListener('change', function() {
+  currentModel = this.value;
+  localStorage.setItem('llm-model', currentModel);
+});
+
+// === PDF Upload ===
+let pdfExtractedText = '';
+
+// Drag & drop
+const dropZone = document.getElementById('pdf-drop-zone');
+dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.style.borderColor='#60a5fa'; this.style.background='#1a2744'; });
+dropZone.addEventListener('dragleave', function(e) { this.style.borderColor='#334155'; this.style.background=''; });
+dropZone.addEventListener('drop', function(e) {
+  e.preventDefault();
+  this.style.borderColor='#334155'; this.style.background='';
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.toLowerCase().endsWith('.pdf')) {
+    uploadPdf(file);
+  } else {
+    alert('Lutfen bir PDF dosyasi yukleyin.');
+  }
+});
+
+async function uploadPdf(file) {
+  if (!file) return;
+  const progressDiv = document.getElementById('pdf-progress');
+  const resultDiv = document.getElementById('pdf-result');
+  const refsDiv = document.getElementById('pdf-refs');
+  const progressBar = document.getElementById('pdf-progress-bar');
+
+  progressDiv.style.display = 'block';
+  resultDiv.style.display = 'none';
+  refsDiv.style.display = 'none';
+  progressBar.style.width = '30%';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    progressBar.style.width = '60%';
+    const res = await fetch('/api/upload/pdf', { method: 'POST', body: formData });
+    const data = await res.json();
+    progressBar.style.width = '100%';
+
+    if (data.error) {
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML = '<div style="color:#f87171;padding:0.75rem;background:#450a0a;border-radius:8px;">Hata: ' + data.error + '</div>';
+      progressDiv.style.display = 'none';
+      return;
+    }
+
+    // Metni sakla (chat icin)
+    pdfExtractedText = data.text || '';
+
+    // Sonucu goster
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = `
+      <div style="background:#0f172a;border-radius:8px;padding:1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+          <span style="color:#34d399;font-weight:600;">✅ ${data.filename}</span>
+          <span style="color:#64748b;font-size:0.85rem;">${data.metadata.pages || '?'} sayfa | ${data.metadata.method === 'tesseract_ocr' ? 'OCR' : 'Metin cikarma'}</span>
+        </div>
+        <details style="margin-top:0.5rem;">
+          <summary style="color:#60a5fa;cursor:pointer;font-size:0.9rem;">Metni goruntule (${data.full_text_length} karakter${data.truncated ? ', kisaltildi' : ''})</summary>
+          <pre style="max-height:300px;overflow-y:auto;background:#1e293b;padding:0.75rem;border-radius:6px;font-size:0.85rem;white-space:pre-wrap;color:#cbd5e1;margin-top:0.5rem;">${(data.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+        </details>
+      </div>`;
+
+    // Referanslari goster
+    if (data.references && data.references.length > 0) {
+      refsDiv.style.display = 'block';
+      let refsHtml = '<div style="background:#0f172a;border-radius:8px;padding:1rem;">';
+      refsHtml += '<div style="color:#34d399;font-weight:600;margin-bottom:0.5rem;">📋 Tespit Edilen Referanslar (' + data.references.length + ')</div>';
+      refsHtml += '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">';
+      data.references.forEach((ref, i) => {
+        refsHtml += '<span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.75rem;border-radius:6px;background:#1e3a5f;color:#93c5fd;font-size:0.85rem;">';
+        refsHtml += '<span style="color:#64748b;font-size:0.75rem;">' + ref.label + ':</span> ' + ref.value;
+        refsHtml += '</span>';
+      });
+      refsHtml += '</div>';
+      refsHtml += '<button onclick="searchAllRefs()" style="padding:0.5rem 1rem;border-radius:6px;border:none;background:linear-gradient(135deg,#059669,#34d399);color:#fff;font-weight:600;cursor:pointer;font-size:0.9rem;">🔍 Tum Referanslari Ara</button>';
+      refsHtml += '<div id="refs-results" style="margin-top:0.75rem;"></div>';
+      refsHtml += '</div>';
+      refsDiv.innerHTML = refsHtml;
+
+      // Referanslari global sakla
+      window._pdfRefs = data.references;
+    }
+
+    setTimeout(() => { progressDiv.style.display = 'none'; }, 1000);
+  } catch(e) {
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = '<div style="color:#f87171;padding:0.75rem;background:#450a0a;border-radius:8px;">Yukleme hatasi: ' + e.message + '</div>';
+    progressDiv.style.display = 'none';
+  }
+}
+
+async function searchAllRefs() {
+  if (!window._pdfRefs || window._pdfRefs.length === 0) {
+    alert('Aranacak referans bulunamadi.');
+    return;
+  }
+  const resultsDiv = document.getElementById('refs-results');
+  resultsDiv.innerHTML = '<div style="color:#60a5fa;">Referanslar araniyor...</div>';
+
+  try {
+    const res = await fetch('/api/search/refs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({references: window._pdfRefs})
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      resultsDiv.innerHTML = '<div style="color:#f87171;">Hata: ' + data.error + '</div>';
+      return;
+    }
+
+    let html = '';
+    data.results.forEach((item, i) => {
+      const ref = item.ref;
+      html += '<div style="margin:0.5rem 0;padding:0.75rem;background:#1e293b;border-radius:6px;border-left:3px solid #60a5fa;">';
+      html += '<div style="font-weight:600;color:#93c5fd;font-size:0.9rem;">' + ref.label + ': ' + ref.value + '</div>';
+      html += '<div style="font-size:0.85rem;color:#cbd5e1;margin-top:0.25rem;white-space:pre-wrap;max-height:200px;overflow-y:auto;">' + item.result.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+      html += '</div>';
+    });
+    resultsDiv.innerHTML = html || '<div style="color:#94a3b8;">Sonuc bulunamadi.</div>';
+  } catch(e) {
+    resultsDiv.innerHTML = '<div style="color:#f87171;">Arama hatasi: ' + e.message + '</div>';
+  }
+}
 </script>
 </body>
 </html>"""
@@ -784,12 +1092,57 @@ async def health_endpoint(request):
 
 
 # ============================================================
-# CHAT ENDPOINT — OpenRouter + MCP araçları
+# CHAT ENDPOINT — BYOK LLM + MCP araçları
 # ============================================================
 
+# BYOK: Bring Your Own Key — kullanıcı kendi API anahtarını sağlar
+# 1. Environment variable: OPENROUTER_API_KEY (geriye uyumluluk)
+# 2. Request header: X-API-Key veya X-LLM-Provider + X-API-Key
+# 3. keyring: Yerel EXE modunda Windows Credential Manager'da saklanır
+# 4. Ollama: Yerel LLM (API key gerektirmez)
+
+# Sağlayıcı yapılandırması
+LLM_PROVIDERS = {
+    "openrouter": {
+        "name": "OpenRouter",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "models": ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "google/gemini-2.0-flash", "meta-llama/llama-3.1-8b-instruct"],
+        "default_model": "openai/gpt-4o-mini",
+        "needs_key": True,
+    },
+    "openai": {
+        "name": "OpenAI",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "models": ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
+        "default_model": "gpt-4o-mini",
+        "needs_key": True,
+    },
+    "anthropic": {
+        "name": "Anthropic",
+        "url": "https://api.anthropic.com/v1/messages",
+        "models": ["claude-sonnet-4-20250514", "claude-haiku-4-20250414"],
+        "default_model": "claude-haiku-4-20250414",
+        "needs_key": True,
+        "is_anthropic": True,  # Farklı API formatı
+    },
+    "gemini": {
+        "name": "Google Gemini",
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        "models": ["gemini-2.0-flash", "gemini-1.5-pro"],
+        "default_model": "gemini-2.0-flash",
+        "needs_key": True,
+    },
+    "ollama": {
+        "name": "Ollama (Yerel)",
+        "url": "http://localhost:11434/v1/chat/completions",
+        "models": ["llama3.2", "llama3.1", "mistral", "qwen2.5", "gemma2"],
+        "default_model": "llama3.2",
+        "needs_key": False,
+    },
+}
+
+# Geriye uyumluluk: OPENROUTER_API_KEY environment variable
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-CHAT_MODEL = "openai/gpt-4o-mini"
 RATE_LIMIT_PER_IP = 10  # IP başına günlük istek limiti
 ip_rate_limits: dict[str, list[float]] = defaultdict(list)
 
@@ -797,6 +1150,55 @@ SYSTEM_PROMPT = """Sen Türkiye MCP asistanısın. Türk hukuk, mali, ihale ve p
 Kullanıcıya Türkçe yanıt ver. Eldeki MCP araç sonuçlarını kullanarak doğru ve özlü cevaplar ver.
 Eğer araç sonucu yoksa genel bilgilendirme yap ama "veriyi şimdi kontrol edemiyorum" diye belirt.
 Sonuçları tablo veya liste halinde düzenle. Kaynağı belirt."""
+
+
+def _get_llm_config(request) -> tuple[str, str, str]:
+    """İstekten LLM yapılandırmasını al.
+
+    Returns:
+        (provider_id, api_key, model) tuple'ı
+    """
+    # 1. Header'dan provider ve key
+    provider_id = request.headers.get("X-LLM-Provider", "").lower()
+    api_key = request.headers.get("X-API-Key", "")
+    model = request.headers.get("X-LLM-Model", "")
+
+    # 2. keyring'den yerel key okuma (sadece yerel modda)
+    is_local = os.environ.get("TURKIYE_MCP_LOCAL") == "1"
+    if is_local and not api_key:
+        try:
+            import keyring
+            stored_key = keyring.get_password("turkiye-mcp", "llm-api-key")
+            stored_provider = keyring.get_password("turkiye-mcp", "llm-provider") or "openrouter"
+            stored_model = keyring.get_password("turkiye-mcp", "llm-model") or ""
+            if stored_key:
+                api_key = stored_key
+                if not provider_id:
+                    provider_id = stored_provider
+                if not model:
+                    model = stored_model
+        except Exception:
+            pass
+
+    # 3. Geriye uyumluluk: OPENROUTER_API_KEY environment variable
+    if not api_key and OPENROUTER_API_KEY:
+        api_key = OPENROUTER_API_KEY
+        if not provider_id:
+            provider_id = "openrouter"
+
+    # Varsayılanlar
+    if not provider_id:
+        provider_id = "openrouter"
+
+    # Provider geçerli mi?
+    if provider_id not in LLM_PROVIDERS:
+        provider_id = "openrouter"
+
+    provider_config = LLM_PROVIDERS[provider_id]
+    if not model:
+        model = provider_config["default_model"]
+
+    return provider_id, api_key, model
 
 TOOL_ROUTING = {
     # Hukuk — uzun eşleşmeler önce (öncelik sırası önemli)
@@ -928,32 +1330,405 @@ async def _route_and_call(message: str) -> str:
     return "\n---\n".join(results) if results else "", called
 
 
-async def chat_endpoint(request):
-    """Chat endpoint — OpenRouter + MCP araçları ile yanıt üretir."""
-    if not OPENROUTER_API_KEY:
-        return JSONResponse({"error": "Chat özelliği yapılandırılmamış. OPENROUTER_API_KEY ortam değişkeni gerekli."}, status_code=503)
+async def providers_endpoint(request):
+    """Desteklenen LLM sağlayıcılarını listeler."""
+    return JSONResponse({
+        "providers": {k: {"name": v["name"], "needs_key": v["needs_key"], "models": v["models"], "default_model": v["default_model"]} for k, v in LLM_PROVIDERS.items()},
+    })
 
-    # IP rate limiting
-    client_ip = request.client.host if request.client else "unknown"
-    now = time.time()
-    day_ago = now - 86400
-    ip_rate_limits[client_ip] = [t for t in ip_rate_limits[client_ip] if t > day_ago]
-    if len(ip_rate_limits[client_ip]) >= RATE_LIMIT_PER_IP:
-        return JSONResponse({"error": f"Günlük limit aşıldı ({RATE_LIMIT_PER_IP} istek/IP). Yarın tekrar deneyin.", "remaining": 0}, status_code=429)
-    ip_rate_limits[client_ip].append(now)
+
+async def configure_llm_endpoint(request):
+    """LLM yapılandırmasını kaydet (keyring ile yerel modda).
+
+    Body: {"provider": "openrouter", "api_key": "sk-...", "model": "openai/gpt-4o-mini"}
+    """
+    is_local = os.environ.get("TURKIYE_MCP_LOCAL") == "1"
+    if not is_local:
+        return JSONResponse({"error": "Yapılandırma kaydı sadece yerel modda desteklenir."}, status_code=400)
 
     try:
         body = await request.json()
-        message = body.get("message", "").strip()[:500]
-        if not message:
-            return JSONResponse({"error": "Mesaj boş olamaz."}, status_code=400)
     except Exception:
         return JSONResponse({"error": "Geçersiz istek."}, status_code=400)
+
+    provider_id = body.get("provider", "").lower()
+    api_key = body.get("api_key", "")
+    model = body.get("model", "")
+
+    if provider_id not in LLM_PROVIDERS:
+        return JSONResponse({"error": f"Bilinmeyen sağlayıcı: {provider_id}"}, status_code=400)
+
+    try:
+        import keyring
+        if api_key:
+            keyring.set_password("turkiye-mcp", "llm-api-key", api_key)
+        if provider_id:
+            keyring.set_password("turkiye-mcp", "llm-provider", provider_id)
+        if model:
+            keyring.set_password("turkiye-mcp", "llm-model", model)
+    except Exception as e:
+        return JSONResponse({"error": f"Keyring hatası: {str(e)}"}, status_code=500)
+
+    return JSONResponse({"status": "ok", "provider": provider_id, "model": model or LLM_PROVIDERS[provider_id]["default_model"]})
+
+
+async def llm_status_endpoint(request):
+    """Mevcut LLM yapılandırmasını getir."""
+    is_local = os.environ.get("TURKIYE_MCP_LOCAL") == "1"
+    provider_id = ""
+    model = ""
+    has_key = False
+
+    # Environment variable'dan
+    if OPENROUTER_API_KEY:
+        provider_id = "openrouter"
+        has_key = True
+
+    # keyring'den (yerel mod)
+    if is_local:
+        try:
+            import keyring
+            stored_key = keyring.get_password("turkiye-mcp", "llm-api-key")
+            stored_provider = keyring.get_password("turkiye-mcp", "llm-provider")
+            stored_model = keyring.get_password("turkiye-mcp", "llm-model")
+            if stored_key:
+                has_key = True
+                api_key = stored_key
+            if stored_provider:
+                provider_id = stored_provider
+            if stored_model:
+                model = stored_model
+        except Exception:
+            pass
+
+    # Header'dan
+    h_provider = request.headers.get("X-LLM-Provider", "")
+    h_key = request.headers.get("X-API-Key", "")
+    if h_provider:
+        provider_id = h_provider
+    if h_key:
+        has_key = True
+
+    return JSONResponse({
+        "is_local": is_local,
+        "provider": provider_id or "none",
+        "model": model or (LLM_PROVIDERS.get(provider_id, {}).get("default_model", "") if provider_id else ""),
+        "has_key": has_key,
+        "env_key_set": bool(OPENROUTER_API_KEY),
+    })
+
+
+# ============================================================
+# PDF UPLOAD — Belge yükleme ve metin çıkarma
+# ============================================================
+
+# Belge numarası regex kalıpları (hukuk belgelerinde arama için)
+DOCUMENT_REGEX_PATTERS = [
+    # Esas numarası: 2023/1234, 2024/5-678
+    (r"(?:esas\s*(?:say[ıi]s[ıi]?\s*)?(?:no[:\.]?\s*)?)?(\d{4}[/-]\d{1,6})", "esas_no"),
+    # Karar numarası: K.2023/1234
+    (r"[Kk][\.\s]*(\d{4}[/-]\d{1,6})", "karar_no"),
+    # Resmi Gazete: RG 32222, Resmi Gazete Sayı: 32222
+    (r"(?:resmi\s*gazete\s*(?:say[ıi]s[ıi]?\s*)?(?:no[:\.]?\s*)?)?(\d{5,6})", "rg_sayi"),
+    # VKN/TCKN: 10-11 haneli numara
+    (r"\b(\d{10,11})\b", "vkn_tckn"),
+    # Kanun numarası: 4721 sayılı kanun, KHK/642
+    (r"(\d{1,5})\s*(?:say[ıi]l[ıi]\s*kanun|say[ıi]l[ıi]\s*KHK)", "kanun_no"),
+    # İhale kayıt no: 2023/123456
+    (r"(?:ihale\s*(?:kay[ıi]t\s*)?(?:no[:\.]?\s*)?)?(\d{4}[/-]\d{4,8})", "ihale_no"),
+    # Dosya numarası: D:2023/123
+    (r"[Dd][\.\s:](\d{4}[/-]\d{1,6})", "dosya_no"),
+]
+
+
+def _extract_document_refs(text: str) -> list[dict]:
+    """Belge metninden hukuki referans numaralarını çıkar.
+
+    Returns:
+        List of {"type": str, "value": str, "search_term": str} dicts
+    """
+    refs = []
+    seen = set()
+
+    for pattern, ref_type in DOCUMENT_REGEX_PATTERS:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            value = match.group(1) if match.lastindex else match.group(0)
+            key = f"{ref_type}:{value}"
+            if key in seen:
+                continue
+            seen.add(key)
+
+            # Arama terimi oluştur
+            if ref_type == "esas_no":
+                search_term = value
+            elif ref_type == "karar_no":
+                search_term = value
+            elif ref_type == "rg_sayi":
+                search_term = f"resmi gazete {value}"
+            elif ref_type == "vkn_tckn":
+                search_term = value
+            elif ref_type == "kanun_no":
+                search_term = f"{value} sayılı kanun"
+            elif ref_type == "ihale_no":
+                search_term = value
+            elif ref_type == "dosya_no":
+                search_term = value
+            else:
+                search_term = value
+
+            refs.append({
+                "type": ref_type,
+                "value": value,
+                "search_term": search_term,
+                "label": {
+                    "esas_no": "Esas No",
+                    "karar_no": "Karar No",
+                    "rg_sayi": "Resmi Gazete Sayısı",
+                    "vkn_tckn": "VKN/TCKN",
+                    "kanun_no": "Kanun No",
+                    "ihale_no": "İhale Kayıt No",
+                    "dosya_no": "Dosya No",
+                }.get(ref_type, ref_type),
+            })
+
+    return refs[:20]  # Maksimum 20 referans
+
+
+def _extract_text_from_pdf(content: bytes) -> tuple[str, dict]:
+    """PDF dosyasından metin çıkar.
+
+    Returns:
+        (text, metadata) tuple. metadata sayfa sayısı vs. içerir.
+    """
+    metadata = {"pages": 0, "method": "pymupdf", "ocr_used": False}
+
+    try:
+        import pymupdf
+        doc = pymupdf.open(stream=content, filetype="pdf")
+        metadata["pages"] = len(doc)
+
+        text_parts = []
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text()
+            if text.strip():
+                text_parts.append(f"--- Sayfa {page_num + 1} ---\n{text}")
+
+        doc.close()
+
+        full_text = "\n\n".join(text_parts)
+
+        # Eğer pymupdf çok az metin çıkardıysa, OCR fallback dene
+        if len(full_text.strip()) < 50 and metadata["pages"] > 0:
+            try:
+                ocr_text = _extract_text_with_ocr(content)
+                if ocr_text and len(ocr_text) > len(full_text):
+                    full_text = ocr_text
+                    metadata["method"] = "tesseract_ocr"
+                    metadata["ocr_used"] = True
+            except Exception as e:
+                logger.warning(f"OCR fallback basarisiz: {e}")
+
+        return full_text, metadata
+
+    except ImportError:
+        logger.warning("pymupdf yuklu degil, OCR deneniyor...")
+        try:
+            ocr_text = _extract_text_with_ocr(content)
+            metadata["method"] = "tesseract_ocr"
+            metadata["ocr_used"] = True
+            return ocr_text, metadata
+        except Exception as e:
+            metadata["error"] = str(e)
+            return "", metadata
+    except Exception as e:
+        metadata["error"] = str(e)
+        return "", metadata
+
+
+def _extract_text_with_ocr(content: bytes) -> str:
+    """Tesseract OCR ile PDF'den metin çıkar (fallback)."""
+    try:
+        from pdf2image import convert_from_bytes
+        import pytesseract
+
+        images = convert_from_bytes(content, dpi=200)
+        text_parts = []
+
+        for i, img in enumerate(images):
+            # Turkce dil destegi ile OCR
+            try:
+                text = pytesseract.image_to_string(img, lang="tur+eng")
+            except Exception:
+                # Turkiye dili yoksa sadece Ingilizce dene
+                text = pytesseract.image_to_string(img, lang="eng")
+            text_parts.append(f"--- Sayfa {i + 1} (OCR) ---\n{text}")
+
+        return "\n\n".join(text_parts)
+
+    except ImportError as e:
+        raise ImportError(f"OCR kutuphaneleri yuklu degil: {e}")
+
+
+async def upload_pdf_endpoint(request):
+    """PDF yukleme endpoint'i.
+
+    Multipart form-data ile PDF dosyasi yuklenir.
+    Yanit: metin icerigi + cikarilan referans numaralari.
+    """
+    try:
+        form = await request.form()
+    except Exception:
+        return JSONResponse({"error": "Gecersiz form verisi."}, status_code=400)
+
+    file = form.get("file")
+    if not file:
+        return JSONResponse({"error": "Dosya bulunamadi. 'file' alani gerekli."}, status_code=400)
+
+    # Dosya boyutu kontrolu (maks 20MB)
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        return JSONResponse({"error": "Dosya boyutu 20MB'dan buyuk olamaz."}, status_code=400)
+
+    filename = file.filename or "document.pdf"
+    if not filename.lower().endswith(".pdf"):
+        return JSONResponse({"error": "Sadece PDF dosyalari yuklenebilir."}, status_code=400)
+
+    # PDF'den metin cikar
+    text, metadata = _extract_text_from_pdf(content)
+
+    if not text.strip():
+        return JSONResponse({
+            "error": "PDF'den metin cikarilamadi. Dosya taranmis goruntu iceriyor olabilir.",
+            "metadata": metadata,
+        }, status_code=422)
+
+    # Belge referanslarini cikar
+    refs = _extract_document_refs(text)
+
+    # Metni kisalt (maks 10000 karakter)
+    truncated = len(text) > 10000
+    display_text = text[:10000] + ("..." if truncated else "")
+
+    return JSONResponse({
+        "filename": filename,
+        "text": display_text,
+        "full_text_length": len(text),
+        "truncated": truncated,
+        "metadata": metadata,
+        "references": refs,
+    })
+
+
+async def search_document_refs_endpoint(request):
+    """Belge referans numaralarini MCP araclariyla arar.
+
+    Body: {"references": [...], "provider": "openrouter", "api_key": "sk-..."}
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Gecersiz istek."}, status_code=400)
+
+    refs = body.get("references", [])
+    if not refs:
+        return JSONResponse({"error": "Referans numaralari gerekli."}, status_code=400)
+
+    results = []
+    for ref in refs[:10]:  # Maks 10 referans
+        search_term = ref.get("search_term", "")
+        ref_type = ref.get("type", "")
+        ref_value = ref.get("value", "")
+
+        try:
+            # Referans tipine gore ilgili MCP aracini cagir
+            if ref_type in ("esas_no", "karar_no", "dosya_no"):
+                tool_result, _ = await _route_and_call(search_term)
+                results.append({"ref": ref, "result": tool_result[:2000] if tool_result else "Sonuc bulunamadi."})
+            elif ref_type == "rg_sayi":
+                tool_result, _ = await _route_and_call(f"resmi gazete {ref_value}")
+                results.append({"ref": ref, "result": tool_result[:2000] if tool_result else "Sonuc bulunamadi."})
+            elif ref_type == "vkn_tckn":
+                if MODULES_AVAILABLE.get("ivd"):
+                    result = await check_efatura_taxpayer(vergi_kimlik_no=ref_value)
+                    results.append({"ref": ref, "result": result[:2000]})
+                else:
+                    results.append({"ref": ref, "result": "IVD modulu yuklu degil."})
+            elif ref_type == "kanun_no":
+                tool_result, _ = await _route_and_call(search_term)
+                results.append({"ref": ref, "result": tool_result[:2000] if tool_result else "Sonuc bulunamadi."})
+            elif ref_type == "ihale_no":
+                tool_result, _ = await _route_and_call(f"ihale {ref_value}")
+                results.append({"ref": ref, "result": tool_result[:2000] if tool_result else "Sonuc bulunamadi."})
+            else:
+                tool_result, _ = await _route_and_call(search_term)
+                results.append({"ref": ref, "result": tool_result[:2000] if tool_result else "Sonuc bulunamadi."})
+        except Exception as e:
+            results.append({"ref": ref, "result": f"Hata: {str(e)}"})
+
+    return JSONResponse({"results": results})
+
+
+async def chat_endpoint(request):
+    """Chat endpoint — BYOK LLM + MCP araçları ile yanıt üretir.
+
+    Header'lar:
+      X-LLM-Provider: openrouter|openai|anthropic|gemini|ollama
+      X-API-Key: API anahtarı (ollama hariç)
+      X-LLM-Model: Model adı (opsiyonel)
+
+    Veya body'de:
+      provider, api_key, model alanları
+    """
+    # LLM yapılandırmasını al
+    provider_id, api_key, model = _get_llm_config(request)
+
+    # Body'den de alabilir (frontend'den)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    if body.get("provider"):
+        provider_id = body["provider"].lower()
+    if body.get("api_key"):
+        api_key = body["api_key"]
+    if body.get("model"):
+        model = body["model"]
+
+    # Provider geçerli mi?
+    if provider_id not in LLM_PROVIDERS:
+        return JSONResponse({"error": f"Bilinmeyen sağlayıcı: {provider_id}. Geçerli: {', '.join(LLM_PROVIDERS.keys())}"}, status_code=400)
+
+    provider_config = LLM_PROVIDERS[provider_id]
+
+    # API key gerekli mi?
+    if provider_config["needs_key"] and not api_key:
+        return JSONResponse({
+            "error": "API anahtarı gerekli.",
+            "needs_key": True,
+            "provider": provider_id,
+            "providers": {k: {"name": v["name"], "needs_key": v["needs_key"], "models": v["models"], "default_model": v["default_model"]} for k, v in LLM_PROVIDERS.items()},
+        }, status_code=401)
+
+    # IP rate limiting (sadece bulut sağlayıcılar için)
+    if provider_config["needs_key"]:
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+        day_ago = now - 86400
+        ip_rate_limits[client_ip] = [t for t in ip_rate_limits[client_ip] if t > day_ago]
+        if len(ip_rate_limits[client_ip]) >= RATE_LIMIT_PER_IP:
+            return JSONResponse({"error": f"Gunluk limit asildi ({RATE_LIMIT_PER_IP} istek/IP). Yarin tekrar deneyin.", "remaining": 0}, status_code=429)
+        ip_rate_limits[client_ip].append(now)
+
+    message = (body.get("message", "") or "").strip()[:500]
+    if not message:
+        return JSONResponse({"error": "Mesaj bos olamaz."}, status_code=400)
 
     # MCP araçlarını çağır
     tool_context, called_tools = await _route_and_call(message)
 
-    # OpenRouter'a gönder
+    # LLM'e gönder
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if tool_context:
         messages.append({"role": "system", "content": f"MCP araç sonuçları:\n\n{tool_context}"})
@@ -961,23 +1736,54 @@ async def chat_endpoint(request):
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                OPENROUTER_API_URL,
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json",
-                          "HTTP-Referer": "https://turkiye-mcp.up.railway.app"},
-                json={"model": CHAT_MODEL, "messages": messages, "max_tokens": 1024},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            reply = data.get("choices", [{}])[0].get("message", {}).get("content", "Yanıt alınamadı.")
+            if provider_config.get("is_anthropic"):
+                # Anthropic API formatı farklı
+                resp = await client.post(
+                    provider_config["url"],
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": 1024,
+                        "system": SYSTEM_PROMPT + ("\n\nMCP araç sonuçları:\n\n" + tool_context if tool_context else ""),
+                        "messages": [{"role": "user", "content": message}],
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                reply = data.get("content", [{}])[0].get("text", "Yanit alinamadi.")
+            else:
+                # OpenAI-uyumlu API formatı (OpenRouter, OpenAI, Gemini, Ollama)
+                headers = {"Content-Type": "application/json"}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                if provider_id == "openrouter":
+                    headers["HTTP-Referer"] = "https://turkiye-mcp.up.railway.app"
+
+                resp = await client.post(
+                    provider_config["url"],
+                    headers=headers,
+                    json={"model": model, "messages": messages, "max_tokens": 1024},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                reply = data.get("choices", [{}])[0].get("message", {}).get("content", "Yanit alinamadi.")
+
             sources = list(called_tools)[:5]
     except httpx.HTTPStatusError as e:
-        return JSONResponse({"error": f"LLM hatası: {e.response.status_code}", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits[client_ip])}, status_code=502)
+        return JSONResponse({"error": f"LLM hatasi: {e.response.status_code} - {e.response.text[:200]}", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))}, status_code=502)
+    except httpx.ConnectError:
+        if provider_id == "ollama":
+            return JSONResponse({"error": "Ollama baglantisi kurulamadi. Ollama'in calistigindan emin olun (localhost:11434).", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))}, status_code=502)
+        return JSONResponse({"error": "LLM saglayicisina baglanilamadi.", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))}, status_code=502)
     except Exception as e:
         return JSONResponse({"error": f"Beklenmeyen hata: {str(e)}"}, status_code=500)
 
-    remaining = RATE_LIMIT_PER_IP - len(ip_rate_limits[client_ip])
-    return JSONResponse({"response": reply, "sources": sources[:5], "remaining": remaining})
+    remaining = RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))
+    return JSONResponse({"response": reply, "sources": sources[:5], "remaining": remaining, "provider": provider_id, "model": model})
 
 
 # ============================================================
@@ -998,6 +1804,11 @@ starlette_app = Starlette(
         Route("/", homepage),
         Route("/health", health_endpoint),
         Route("/api/chat", chat_endpoint, methods=["POST"]),
+        Route("/api/chat/providers", providers_endpoint, methods=["GET"]),
+        Route("/api/chat/configure", configure_llm_endpoint, methods=["POST"]),
+        Route("/api/chat/status", llm_status_endpoint, methods=["GET"]),
+        Route("/api/upload/pdf", upload_pdf_endpoint, methods=["POST"]),
+        Route("/api/search/refs", search_document_refs_endpoint, methods=["POST"]),
         Mount("/", app=mcp_asgi),
     ],
     lifespan=mcp_asgi.lifespan if hasattr(mcp_asgi, 'lifespan') else None,

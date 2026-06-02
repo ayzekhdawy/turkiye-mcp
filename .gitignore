@@ -15,4 +15,4 @@ logs/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
-*.bak
+*.baktest_document.pdf
