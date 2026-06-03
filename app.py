@@ -631,6 +631,39 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .bubble { padding: 0.75rem 1rem; font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; }
 .bubble code { background: rgba(255,255,255,0.1); padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.85em; }
 .bubble strong { color: var(--accent-hover); }
+.bubble .msg-content { white-space: normal; }
+.bubble .msg-content h2,.bubble .msg-content h3,.bubble .msg-content h4 { margin: 0.5rem 0 0.25rem; color: var(--text-primary); }
+.bubble .msg-content h2 { font-size: 1.1rem; }
+.bubble .msg-content h3 { font-size: 1rem; }
+.bubble .msg-content h4 { font-size: 0.95rem; }
+.bubble .msg-content ul,.bubble .msg-content ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+.bubble .msg-content li { margin: 0.2rem 0; }
+.bubble .msg-content hr { border: none; border-top: 1px solid var(--border); margin: 0.75rem 0; }
+.bubble .msg-content a { color: var(--accent-hover); text-decoration: underline; }
+.bubble .msg-content em { color: var(--accent-hover); }
+.msg-actions { display: flex; gap: 0.25rem; margin-top: 0.5rem; opacity: 0.5; transition: opacity 0.2s; }
+.msg-actions:hover { opacity: 1; }
+.msg-actions button { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 0.2rem 0.4rem; cursor: pointer; font-size: 0.75rem; color: var(--text-secondary); transition: all 0.2s; }
+.msg-actions button:hover { background: var(--bg-card-hover); color: var(--text-primary); border-color: var(--accent); }
+
+/* Markdown Table */
+.md-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.85rem; }
+.md-table th { background: rgba(99,102,241,0.3); color: var(--text-primary); padding: 0.4rem 0.6rem; text-align: left; border: 1px solid var(--border); font-weight: 600; }
+.md-table td { padding: 0.35rem 0.6rem; border: 1px solid var(--border); color: var(--text-secondary); }
+.md-table tr:hover td { background: var(--bg-card-hover); }
+
+/* Settings Panel */
+.settings-panel { display: none; padding: 1.5rem; overflow-y: auto; }
+.settings-panel.active { display: block; }
+.settings-section { margin-bottom: 1.5rem; }
+.settings-section h3 { font-size: 0.95rem; color: var(--text-primary); margin-bottom: 0.75rem; }
+.settings-row { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem; }
+.settings-row label { font-size: 0.85rem; color: var(--text-secondary); min-width: 100px; }
+.settings-row select,.settings-row input { flex: 1; }
+.server-status { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--bg-card); font-size: 0.8rem; }
+.server-dot { width: 8px; height: 8px; border-radius: 50%; }
+.server-dot.ok { background: var(--success); }
+.server-dot.err { background: var(--danger); }
 
 /* Sources */
 .sources { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
@@ -719,6 +752,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
   <div class="main-area">
     <!-- Top Bar -->
     <div class="top-bar">
+      <div class="server-status"><span class="server-dot ok" id="server-dot"></span><span id="server-status-text">Baglaniyor...</span></div>
       <select class="provider-select" id="llm-provider" onchange="onProviderChange()">
         <option value="openrouter">OpenRouter</option>
         <option value="openai">OpenAI</option>
@@ -798,6 +832,21 @@ let currentProvider = localStorage.getItem('llm-provider') || 'openrouter';
 let currentModel = localStorage.getItem('llm-model') || '';
 let savedApiKey = localStorage.getItem('llm-api-key') || '';
 let isSending = false;
+
+// ===== Server Status =====
+async function checkServerStatus() {
+  try {
+    const res = await fetch('/health', {signal: AbortSignal.timeout(3000)});
+    const data = await res.json();
+    document.getElementById('server-dot').className = 'server-dot ok';
+    document.getElementById('server-status-text').textContent = `${data.active_count || '?'}/${data.total_count || '?'} modul aktif`;
+  } catch(e) {
+    document.getElementById('server-dot').className = 'server-dot err';
+    document.getElementById('server-status-text').textContent = 'Sunucuya baglanilamiyor';
+  }
+}
+checkServerStatus();
+setInterval(checkServerStatus, 30000);
 
 // ===== Chat Management =====
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
@@ -899,7 +948,11 @@ function renderChat() {
   chat.messages.forEach(m => {
     const div = document.createElement('div');
     div.className = `message ${m.role}`;
-    div.innerHTML = `<div class="bubble">${escapeHtml(m.text)}${m.sources ? renderSources(m.sources) : ''}</div>`;
+    if (m.role === 'assistant') {
+      div.innerHTML = `<div class="bubble"><div class="msg-content">${renderMarkdown(m.text)}</div>${m.sources ? renderSources(m.sources) : ''}<div class="msg-actions"><button onclick="copyMessage(this)" title="Kopyala">📋</button><button onclick="exportWord(this)" title="Word'e Aktar">📄</button></div></div>`;
+    } else {
+      div.innerHTML = `<div class="bubble">${escapeHtml(m.text)}${m.sources ? renderSources(m.sources) : ''}</div>`;
+    }
     area.appendChild(div);
   });
   area.scrollTop = area.scrollHeight;
@@ -912,6 +965,82 @@ function renderSources(sources) {
 
 function escapeHtml(text) {
   return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ===== Markdown Render =====
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = escapeHtml(text);
+  // Bold
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  // Headers
+  html = html.replace(/^### (.*?)(?:\n|$)/gm, '<h4>$1</h4>');
+  html = html.replace(/^## (.*?)(?:\n|$)/gm, '<h3>$1</h3>');
+  html = html.replace(/^# (.*?)(?:\n|$)/gm, '<h2>$1</h2>');
+  // Tables
+  html = html.replace(/\n\|(.+)\|\n\|[-| :]+\|\n((?:\|.+\|\n?)+)/g, function(match, header, body) {
+    const ths = header.split('|').map(s=>s.trim()).filter(Boolean).map(s=>'<th>'+s+'</th>').join('');
+    const rows = body.trim().split('\n').map(row=>{
+      const tds = row.split('|').map(s=>s.trim()).filter(Boolean).map(s=>'<td>'+s+'</td>').join('');
+      return '<tr>'+tds+'</tr>';
+    }).join('');
+    return '<table class="md-table"><thead><tr>'+ths+'</tr></thead><tbody>'+rows+'</tbody></table>';
+  });
+  // Unordered lists
+  html = html.replace(/^- (.*?)(?:\n|$)/gm, '<li>$1</li>');
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+  // Ordered lists
+  html = html.replace(/^\d+\. (.*?)(?:\n|$)/gm, '<li>$1</li>');
+  // Horizontal rule
+  html = html.replace(/^---$/gm, '<hr>');
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+  // Clean up double <br> after block elements
+  html = html.replace(/(<\/h[234]>)<br>/g, '$1');
+  html = html.replace(/(<\/table>)<br>/g, '$1');
+  html = html.replace(/(<\/ul>)<br>/g, '$1');
+  html = html.replace(/(<hr>)<br>/g, '$1');
+  return html;
+}
+
+// ===== Copy & Export =====
+function copyMessage(btn) {
+  const bubble = btn.closest('.bubble');
+  const content = bubble.querySelector('.msg-content');
+  const text = content ? content.innerText : bubble.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓';
+    setTimeout(() => btn.textContent = '📋', 1500);
+  });
+}
+
+function exportWord(btn) {
+  const bubble = btn.closest('.bubble');
+  const content = bubble.querySelector('.msg-content');
+  const htmlContent = content ? content.innerHTML : bubble.innerHTML;
+  const chat = getActiveChat();
+  const title = chat ? chat.title : 'TurkiyeMCP';
+  const fullHtml = `
+    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+    <head><meta charset='utf-8'><title>${escapeHtml(title)}</title>
+    <style>body{font-family:'Segoe UI',Tahoma,sans-serif;font-size:11pt;color:#1a1a2e}
+    table{border-collapse:collapse;width:100%;margin:8pt 0}th,td{border:1px solid #ccc;padding:4pt 8pt;font-size:10pt}th{background:#6366f1;color:#fff}
+    h2{color:#6366f1}h3{color:#818cf8}h4{color:#a5b4fc}code{background:#f1f5f9;padding:1pt 3pt;border-radius:3pt;font-size:10pt}
+    strong{color:#6366f1}em{color:#8b5cf6}</style></head>
+    <body>${htmlContent}</body></html>`;
+  const blob = new Blob(['﻿', fullHtml], {type: 'application/msword'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${title.replace(/[^a-zA-Z0-9À-ɏ]/g,'_')}.doc`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  btn.textContent = '✓'; setTimeout(() => btn.textContent = '📄', 1500);
 }
 
 // ===== Send Message =====
@@ -1384,9 +1513,19 @@ RATE_LIMIT_PER_IP = 10  # IP başına günlük istek limiti
 ip_rate_limits: dict[str, list[float]] = defaultdict(list)
 
 SYSTEM_PROMPT = """Sen Türkiye MCP asistanısın. Türk hukuk, mali, ihale ve piyasa verileri konusunda uzmansın.
+
 Kullanıcıya Türkçe yanıt ver. Eldeki MCP araç sonuçlarını kullanarak doğru ve özlü cevaplar ver.
-Eğer araç sonucu yoksa genel bilgilendirme yap ama "veriyi şimdi kontrol edemiyorum" diye belirt.
-Sonuçları tablo veya liste halinde düzenle. Kaynağı belirt."""
+
+YANIT FORMATI KURALLARI:
+1. Her araç sonucunu açıklayıcı bir şekilde sun — raw tablo YERİNE:
+   - Karar/kayıt için: Mahkeme/kurum adı, karar no, esas no, tarih, konu ÖZETİ
+   - Her sonucun "ne anlama geldiğini" ve "hukuki sonuçlarını" açıkla
+   - Kaynak belirt (hangi MCP aracı kullanıldı, hangi veri tabanı)
+2. Sonuçları markdown formatında sun — tablo, liste, kalın yazı kullan
+3. Hukuki terimleri açıkla (örn: "istinaf", "temyiz", "esas no" vb.)
+4. İlgili mevzuat, yönetmelik ve kanun atıfları ekle
+5. Sonuç yoksa genel bilgilendirme yap ama "veriyi şimdi kontrol edemiyorum" diye belirt
+6. Her yanıtın sonunda 📋 Kaynak bölümü ekle — hangi araç/veri tabanı kullanıldığını belirt"""
 
 
 def _get_llm_config(request) -> tuple[str, str, str]:
