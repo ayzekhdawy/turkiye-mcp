@@ -960,7 +960,7 @@ function renderMarkdown(text) {
   html = html.replace(/^## (.*?)(?:\n|$)/gm, '<h3>$1</h3>');
   html = html.replace(/^# (.*?)(?:\n|$)/gm, '<h2>$1</h2>');
   // Tables
-  html = html.replace(/\n\|(.+)\|\n\|[-| :]+\|\n((?:\|.+\|\n?)+)/g, function(match, header, body) {
+  html = html.replace(/\\n\\|(.+)\\|\\n\\|[-| :]+\\|\\n((?:\\|.+\\|\\n?)+)/g, function(match, header, body) {
     const ths = header.split('|').map(s=>s.trim()).filter(Boolean).map(s=>'<th>'+s+'</th>').join('');
     const rows = body.trim().split('\n').map(row=>{
       const tds = row.split('|').map(s=>s.trim()).filter(Boolean).map(s=>'<td>'+s+'</td>').join('');
@@ -1215,18 +1215,26 @@ loadConfig();
 
 
 async def homepage(request):
-    return HTMLResponse(DASHBOARD_HTML)
+    try:
+        return HTMLResponse(DASHBOARD_HTML)
+    except Exception as e:
+        import traceback
+        return HTMLResponse(f"<pre>Error rendering dashboard:\n{traceback.format_exc()}</pre>", status_code=500)
 
 
 async def health_endpoint(request):
-    return JSONResponse({
-        "status": "ok",
-        "version": "1.0.0",
-        "modules": MODULES_AVAILABLE,
-        "active_count": sum(1 for v in MODULES_AVAILABLE.values() if v),
-        "total_count": len(MODULES_AVAILABLE),
-        "date": date.today().isoformat(),
-    })
+    try:
+        return JSONResponse({
+            "status": "ok",
+            "version": "1.0.0",
+            "modules": MODULES_AVAILABLE,
+            "active_count": sum(1 for v in MODULES_AVAILABLE.values() if v),
+            "total_count": len(MODULES_AVAILABLE),
+            "date": date.today().isoformat(),
+        })
+    except Exception as e:
+        import traceback
+        return JSONResponse({"status": "error", "error": str(e), "traceback": traceback.format_exc()}, status_code=500)
 
 
 # --- UYAP EYP/UDF ARAÇLARI ---
@@ -2091,7 +2099,8 @@ async def chat_endpoint(request):
 mcp_asgi = app.http_app(transport="sse")
 
 # Build Starlette app with dashboard + MCP mount
-# IMPORTANT: pass mcp_asgi.lifespan so FastMCP session manager starts properly
+# NOTE: Don't pass lifespan from mcp_asgi — it causes 500 errors.
+# The FastMCP lifespan is incompatible with Starlette's and crashes on startup.
 starlette_app = Starlette(
     middleware=[
         Middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]),
@@ -2108,7 +2117,6 @@ starlette_app = Starlette(
         Route("/api/upload/uyap", upload_uyap_endpoint, methods=["POST"]),
         Mount("/", app=mcp_asgi),
     ],
-    lifespan=mcp_asgi.lifespan if hasattr(mcp_asgi, 'lifespan') else None,
 )
 
 

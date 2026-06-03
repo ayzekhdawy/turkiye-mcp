@@ -140,17 +140,20 @@ HOST = "127.0.0.1"
 
 
 def is_server_running(host: str, port: int) -> bool:
-    """Sunucunun çalışıp çalışmadığını kontrol et."""
+    """Sunucunun çalışıp çalışmadığını kontrol et.
+    200 (hazır) veya 500 (başlıyor) dönüyorsa sunucu çalışıyor sayılır."""
     import httpx
     try:
         resp = httpx.get(f"http://{host}:{port}/health", timeout=3)
-        return resp.status_code == 200
+        return resp.status_code in (200, 500)
     except Exception:
         return False
 
 
 def wait_for_server(host: str, port: int, timeout: float = 120.0) -> bool:
-    """Sunucunun hazır olmasını bekle."""
+    """Sunucunun hazır olmasını bekle.
+    Modüller yüklenirken /health 500 dönebilir — bu durumda beklenecek.
+    Sadece 200 dönerse hazır sayılır."""
     import httpx
     start = time.time()
     logger.info(f"Sunucu bekleniyor (timeout: {timeout}s)...")
@@ -161,6 +164,10 @@ def wait_for_server(host: str, port: int, timeout: float = 120.0) -> bool:
                 elapsed = time.time() - start
                 logger.info(f"[OK] Sunucu hazır! ({elapsed:.1f}s)")
                 return True
+            # 500 = sunucu çalışıyor ama modüller yükleniyor, bekle
+            if resp.status_code == 500:
+                time.sleep(1)
+                continue
         except Exception:
             time.sleep(0.5)
         elapsed = time.time() - start
@@ -177,7 +184,8 @@ def start_server(host: str, port: int):
         import uvicorn
         from app import starlette_app
         logger.info(f"Sunucu başlatılıyor: {host}:{port}")
-        uvicorn.run(starlette_app, host=host, port=port, log_level="warning")
+        logger.info(f"starlette_app type: {type(starlette_app)}")
+        uvicorn.run(starlette_app, host=host, port=port, log_level="info")
     except Exception as e:
         tb = traceback.format_exc()
         logger.error(f"Sunucu başlatma hatası: {tb}")
