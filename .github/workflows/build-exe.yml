@@ -1,20 +1,29 @@
 name: Build EXE Release
 
+# Bir 'v*' tag'i push edildiğinde (örn. v1.5.0) otomatik olarak:
+#   1. Windows'ta EXE derler
+#   2. release_notes.md içeriğiyle GitHub Release oluşturur
+#   3. TurkiyeMCP.exe'yi release asset'i olarak yükler
+#
+# Manuel tetikleme (workflow_dispatch) ile de çalıştırılabilir; bu durumda
+# 'version' girilirse o tag oluşturulur, girilmezse pyproject.toml sürümü kullanılır.
+
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g., v1.1.0)'
+        description: 'Sürüm tag (örn. v1.5.0) — boş bırakılırsa pyproject.toml sürümü kullanılır'
         required: false
         default: ''
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
-    permissions:
-      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -29,74 +38,45 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller pywebview pystray Pillow keyring pymupdf
+          pip install pyinstaller pywebview pystray Pillow keyring pymupdf magika
+
+      - name: Sanity check (import app)
+        run: python -c "import app, workspace; print('import OK, routes:', len(app.starlette_app.routes))"
 
       - name: Build EXE
-        run: pyinstaller turkiye_mcp.spec --noconfirm
+        run: pyinstaller turkiye_mcp.spec --noconfirm --clean
 
-      - name: Get version
+      - name: Resolve version tag
         id: version
         shell: bash
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.event.inputs.version }}"
           elif [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "VERSION=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.ref_name }}"
           else
-            VERSION=$(python -c "import tomllib; f=open('pyproject.toml','rb'); d=tomllib.load(f); print(d['project']['version'])")
-            echo "VERSION=v${VERSION}" >> $GITHUB_OUTPUT
+            PV=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+            VERSION="v${PV}"
           fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VERSION}"
 
-      - name: Generate Release Notes
-        id: notes
+      - name: Prepare release notes
         shell: bash
         run: |
-          python -c "
-          import sys
-          sys.path.insert(0, '.')
-          try:
-              from app import MODULES_AVAILABLE
-              active = sum(1 for v in MODULES_AVAILABLE.values() if v)
-              total = len(MODULES_AVAILABLE)
-              notes = f'''## Turkiye MCP Server \${{ steps.version.outputs.VERSION }}
+          if [ ! -f release_notes.md ]; then
+            echo "## Türkiye MCP ${{ steps.version.outputs.VERSION }}" > release_notes.md
+            echo "" >> release_notes.md
+            echo "Otomatik derlenmiş Windows EXE sürümü." >> release_notes.md
+          fi
 
-          ### Moduller ({active}/{total} aktif)
-          '''
-              for name, ok in MODULES_AVAILABLE.items():
-                  notes += f'- {'✅' if ok else '❌'} {name}\n'
-              notes += '''
-          ### Indirme
-          - **TurkiyeMCP.exe** — Windows 10/11 (64-bit)
-          - Ikili tikla ve calistir, ek kurulum gerekmez.
-
-          ### Kullanim
-          1. TurkiyeMCP.exe dosyasini indirin
-          2. Ikili tikla ile calistirin
-          3. Sistem tepsisinde Turkiye bayragi ikonu gorunur
-          4. Dashboard otomatik olarak acilir
-
-          ### Komut Satiri Secenekleri
-          - \`TurkiyeMCP.exe\` — GUI ile baslat
-          - \`TurkiyeMCP.exe --no-gui\` — Sadece sunucu
-          - \`TurkiyeMCP.exe --browser\` — Tarayicida ac
-          - \`TurkiyeMCP.exe --port 9090\` — Farkli port
-          - \`TurkiyeMCP.exe --no-tray\` — Sistem tepsisi ikonu yok
-          '''
-              with open('release_notes.md', 'w', encoding='utf-8') as f:
-                  f.write(notes)
-          except Exception as e:
-              with open('release_notes.md', 'w') as f:
-                  f.write(f'Turkiye MCP Server ${{ steps.version.outputs.VERSION }}')
-          "
-
-      - name: Create Release
+      - name: Create / update Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.VERSION }}
-          name: Türkiye MCP Server ${{ steps.version.outputs.VERSION }}
+          name: Türkiye MCP ${{ steps.version.outputs.VERSION }}
           body_path: release_notes.md
-          files: |
-            dist/TurkiyeMCP.exe
+          files: dist/TurkiyeMCP.exe
           draft: false
           prerelease: false
         env:
