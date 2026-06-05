@@ -1,44 +1,29 @@
-## 🇹🇷 Türkiye MCP Server v1.4.0
+## 🇹🇷 Türkiye MCP v1.5.0 — "Avukat Modu"
 
-### 🆕 Çalışma Alanı (Klasör · Oturum · Dosya Kalıcılığı)
-- **Klasör oluşturma** ve sohbetleri klasörlere **sürükle-bırak** ile yerleştirme
-- Oturumlar artık **sunucuda** saklanıyor → uygulama kapanıp açılsa bile **kaldığınız yerden devam**
-- Yüklediğiniz belgeler ilgili klasöre kaydedilir
-- Veri dizini: `%LOCALAPPDATA%\TurkiyeMCP\workspace` (veya `TURKIYE_MCP_DATA_DIR`)
+Bu sürüm, asistanı yalnızca arama yapan bir araçtan, **bağlama göre uzmanlaşan bir hukuk/mali danışmana** dönüştürür.
 
-### ☁️ Ollama Cloud + Dinamik Modeller
-- Yeni **Ollama Cloud** sağlayıcısı (ollama.com API anahtarı ile)
-- Yerel Ollama seçildiğinde makinenizdeki **gerçek modeller otomatik listelenir** (cloud-proxy modelleri dahil: `gpt-oss:120b-cloud`, `qwen3-coder:480b-cloud` vb.)
-- **gpt-oss boş yanıt sorunu düzeltildi**: reasoning modelleri tüm token bütçesini gizli düşünceye harcayıp boş yanıt döndürüyordu → `reasoning_effort: "low"` + `reasoning` alanına fallback ile çözüldü
+### 🧠 Belge Zekâsı
+- Yüklenen belgenin **türü** otomatik tespit edilir (dava dilekçesi, mahkeme kararı, sözleşme, ihtarname, icra takibi, fatura, ihale dokümanı, resmi yazı…)
+- **Taraflar** (davacı/davalı, alacaklı/borçlu) ve **konu** çıkarılır; ek "chip" ve mesajda gösterilir
+- **İlgililik denetimi:** Sorunuz belgeyle ilgisizse model kibarca uyarır, sonra yine de yardımcı olur
 
-### 📄 Belge → Soru → Emsal
-- Yüklenen PDF/UYAP/TXT belge sohbete **ek (chip)** olarak iliştirilir; esas/karar numaraları otomatik çıkarılır
-- Belge hakkında soru sorduğunuzda metni bağlam olarak modele iletilir
-- **⚖ Emsal** butonu ile belgeye dair emsal kararları ve içtihatlar otomatik aranır (`search_emsal`)
-- Çok turlu süreklilik: önceki mesajlar bağlamda taşınır
+### 🔎 Çapraz Hafıza (geçmiş takibi)
+- Aynı esas/karar numarası veya benzer konu **başka bir klasör/sohbette** geçiyorsa, model *"Çalışma alanınızdaki '…' kaydında benzer bir durum var"* diyerek sizi yönlendirir — tıpkı dosyalarını hatırlayan bir avukat gibi
 
-### 🔑 Kararlı API Yönetimi
-- **Sağlayıcı başına ayrı API anahtarı** hatırlanır (geçiş yapınca kaybolmaz)
-- **⚡ Bağlantıyı Test Et** butonu — anahtar/model doğrulaması
-- Sağlayıcıya göre timeout (yerel Ollama için 300s)
+### 📚 Skills (Uzmanlık Yönergeleri)
+- [Anthropic skill formatında](https://github.com/anthropics/skills) oyun kitapları: **Hukuki Emsal Araştırması**, **Belge Analizi**, **Mali Müşavirlik**, **Kamu İhale Rehberi**
+- Bağlama göre seçilip modele enjekte edilir → model hangi LLM olursa olsun alan uzmanı gibi, adım adım ve gerekçeli davranır
+- `skills/<ad>/SKILL.md` ekleyerek kolayca genişletilebilir
 
-### 🔧 Düzeltmeler
-- **Markdown render düzeltildi** — eski sürümde bozuk regex'ler yüzünden tablolar/başlıklar görünmüyordu
-- Hata mesajları anlamlı hale getirildi (boş "Beklenmeyen hata" kaldırıldı)
-- Toast bildirimleri eklendi
+### ⏹ Durdurma & Kararlılık
+- Yanıt üretilirken **gönder butonu durdurma butonuna** dönüşür; tek tıkla iptal
+- **Reasoning modeli düzeltmesi:** `reasoning_effort` yalnızca destekleyen modellere (gpt-oss, deepseek, qwen3, minimax, glm-4.6…) gönderilir; desteklemeyen modellerde otomatik geri çekilir (gemma/llama 400 hatası giderildi)
+
+### 🧩 Avukat personası
+- Sistem yönergesi yeniden yazıldı: uydurma yok, kaynaklı, gerekçeli, mevzuat atıflı yanıtlar; bilgilendirme niteliğinde
 
 ### 📥 İndirme
-- **TurkiyeMCP.exe** — Windows 10/11 (64-bit), çift tıkla çalıştır, ek kurulum gerekmez
+- **TurkiyeMCP.exe** — Windows 10/11 (64-bit), kurulumsuz. Veriler cihazınızda kalır.
 
-### 🚀 Kullanım
-1. `TurkiyeMCP.exe` dosyasını indirip çift tıklayın (ilk açılışta modüller ~20-30 sn yüklenir)
-2. Sağ üstten **Ayarlar** → sağlayıcı ve model seçin (Ollama için yerel modelleriniz otomatik gelir)
-3. **Bağlantıyı Test Et** ile doğrulayın, soru sorun veya belge yükleyin
-4. Sol panelden **klasör** oluşturup sohbetlerinizi düzenleyin
-
-### ⌨️ Komut Satırı
-- `TurkiyeMCP.exe` — GUI ile başlat
-- `TurkiyeMCP.exe --no-gui` — Sadece sunucu
-- `TurkiyeMCP.exe --browser` — Tarayıcıda aç
-- `TurkiyeMCP.exe --port 9090` — Farklı port
-- `TurkiyeMCP.exe --debug` — Konsol penceresini göster
+### 🔌 MCP / SSE
+- Aynı araçlar Claude Desktop/Code, Cursor, VS Code'a `http://localhost:8080/sse` ile bağlanır (ayrıntı: README → SSE Bağlantısı)

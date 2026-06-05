@@ -35,6 +35,13 @@ except Exception as _ws_err:  # pragma: no cover
     workspace = None
     WORKSPACE_AVAILABLE = False
 
+try:
+    import skills as skills_engine  # Anthropic-format skill playbook'ları
+    SKILLS_AVAILABLE = True
+except Exception:
+    skills_engine = None
+    SKILLS_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -660,6 +667,8 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .send:hover{background:var(--accent-hi)}
 .send:disabled{opacity:.4;cursor:not-allowed}
 .send svg{width:18px;height:18px}
+.send.stopping{background:var(--amber)}
+.send.stopping:hover{background:#c9952a}
 .composer-hint{text-align:center;font-size:11px;color:var(--faint);margin-top:9px}
 
 /* ---- file drop ---- */
@@ -1361,6 +1370,26 @@ function exportWord(btn) {
 function fill(msg) { document.getElementById('chat-input').value = msg; document.getElementById('chat-input').focus(); autoResize(document.getElementById('chat-input')); }
 function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 140) + 'px'; }
 
+let currentAbort = null;
+const SEND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>';
+const STOP_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+function setSendMode(sending) {
+  const btn = document.getElementById('send-btn');
+  if (!btn) return;
+  if (sending) {
+    btn.innerHTML = STOP_ICON; btn.classList.add('stopping');
+    btn.title = 'Durdur'; btn.onclick = stopGeneration;
+  } else {
+    btn.innerHTML = SEND_ICON; btn.classList.remove('stopping');
+    btn.title = 'Gönder'; btn.onclick = sendMessage;
+  }
+}
+
+function stopGeneration() {
+  if (currentAbort) { try { currentAbort.abort(); } catch(e) {} }
+}
+
 async function sendMessage() {
   const input = document.getElementById('chat-input');
   const msg = input.value.trim();
@@ -1390,7 +1419,7 @@ async function sendMessage() {
   persistSession(chat, true);
 
   isSending = true;
-  document.getElementById('send-btn').disabled = true;
+  setSendMode(true);
   const typingDiv = document.createElement('div');
   typingDiv.className = 'msg assistant';
   typingDiv.id = 'typing-indicator';
@@ -1398,20 +1427,26 @@ async function sendMessage() {
   document.getElementById('chat-area').appendChild(typingDiv);
   document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
 
+  currentAbort = new AbortController();
   try {
     const provider = document.getElementById('llm-provider') ? document.getElementById('llm-provider').value : currentProvider;
     const model = (document.getElementById('llm-model') && document.getElementById('llm-model').value) || currentModel;
     const apiKey = keyFor(provider);
     const documentContext = buildDocumentContext();
+    // Belge zekâsı: aktif eklerin türü ve benzer kayıtları
+    const atts = chat.attachments || [];
+    const docType = atts.length ? (atts[atts.length - 1].docType || '') : '';
+    let related = [];
+    atts.forEach(a => { if (a.related && a.related.length) related = related.concat(a.related); });
 
     const headers = {'Content-Type': 'application/json'};
     headers['X-LLM-Provider'] = provider;
     headers['X-LLM-Model'] = model;
     if (apiKey && PROVIDERS[provider].needs_key) headers['X-API-Key'] = apiKey;
 
-    const res = await fetch('/api/chat', { method: 'POST', headers, body: JSON.stringify({
+    const res = await fetch('/api/chat', { method: 'POST', headers, signal: currentAbort.signal, body: JSON.stringify({
       message: msg, provider, api_key: apiKey, model,
-      history, document_context: documentContext
+      history, document_context: documentContext, doc_type: docType, related: related
     }) });
     const data = await res.json();
 
@@ -1427,11 +1462,17 @@ async function sendMessage() {
   } catch(e) {
     const ti = document.getElementById('typing-indicator');
     if (ti) ti.remove();
-    chat.messages.push({ role: 'system', text: 'Bağlantı hatası.' });
+    if (e && e.name === 'AbortError') {
+      chat.messages.push({ role: 'system', text: '⏹ Yanıt durduruldu.' });
+      toast('Yanıt durduruldu');
+    } else {
+      chat.messages.push({ role: 'system', text: 'Bağlantı hatası.' });
+    }
   }
 
+  currentAbort = null;
   isSending = false;
-  document.getElementById('send-btn').disabled = false;
+  setSendMode(false);
   chat.updated = Date.now();
   renderChat();
   persistSession(chat, true);
@@ -1466,16 +1507,24 @@ async function handleFileUpload(input) {
     } else {
       const text = (data.text || data.markdown || '');
       const refs = data.references || [];
-      // Eki sohbete iliştir (bağlam olarak kullanılır)
+      const u = data.understanding || {};
+      const related = data.related || [];
+      // Eki sohbete iliştir (bağlam + belge zekâsı)
       chat.attachments.push({
         name: file.name, text: text, refs: refs, refCount: refs.length,
+        docType: u.type || '', typeLabel: u.type_label || '', subject: u.subject || '',
+        parties: u.parties || [], related: related,
         fileId: (data.file && data.file.id) || null
       });
-      const refLine = refs.length ? ('\\nTespit edilen referanslar: ' + refs.map(r => r.value).join(', ')) : '';
-      chat.messages.push({ role: 'system', text: '📄 Belge eklendi: ' + file.name + refLine + '\\n\\nArtık bu belge hakkında soru sorabilir, "⚖ Emsal" ile emsal kararları aratabilirsiniz.' });
+      let info = '📄 Belge eklendi: ' + file.name;
+      if (u.type_label) info += '\\n📑 Tür: ' + u.type_label + (u.subject ? ' — ' + u.subject : '');
+      if (refs.length) info += '\\n🔖 Referanslar: ' + refs.map(r => r.value).join(', ');
+      if (related.length) info += '\\n🔎 Çalışma alanınızda benzer kayıt: ' + related.map(r => r.title + ' (' + r.folder + ')').join('; ');
+      info += '\\n\\nBu belge hakkında soru sorabilir, "⚖ Emsal" ile emsal kararları aratabilirsiniz.';
+      chat.messages.push({ role: 'system', text: info });
       if (chat.title === 'Yeni Sohbet' || !chat.messages.filter(m=>m.role==='user').length) { chat.title = file.name.substring(0, 40); }
       if (data.parse_error) toast('Not: ' + data.parse_error, true);
-      else toast('✓ Belge eklendi');
+      else toast('✓ ' + (u.type_label || 'Belge') + ' eklendi');
     }
     chat.updated = Date.now();
     renderTree();
@@ -1654,6 +1703,8 @@ async def health_endpoint(request):
             "modules": MODULES_AVAILABLE,
             "active_count": sum(1 for v in MODULES_AVAILABLE.values() if v),
             "total_count": len(MODULES_AVAILABLE),
+            "skills_count": len(skills_engine.load_skills()) if SKILLS_AVAILABLE else 0,
+            "workspace": WORKSPACE_AVAILABLE,
             "date": date.today().isoformat(),
         })
     except Exception as e:
@@ -1818,25 +1869,40 @@ LLM_PROVIDERS = {
     },
 }
 
+# Reasoning (düşünme) destekleyen model aileleri — reasoning_effort yalnızca bunlara gönderilir
+_REASONING_MODEL_HINTS = (
+    "gpt-oss", "deepseek-v3", "deepseek-r1", "qwen3", "glm-4.6", "glm-4-6",
+    "kimi", "minimax-m2", "magistral", "reasoning", "nemotron", "exaone-deep",
+    "smallthinker", "thinking",
+)
+
+
+def _is_reasoning_model(model: str) -> bool:
+    """Model adından reasoning/düşünme modeli olup olmadığını tahmin eder."""
+    m = (model or "").lower()
+    return any(h in m for h in _REASONING_MODEL_HINTS)
+
+
 # Geriye uyumluluk: OPENROUTER_API_KEY environment variable
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 RATE_LIMIT_PER_IP = 10  # IP başına günlük istek limiti
 ip_rate_limits: dict[str, list[float]] = defaultdict(list)
 
-SYSTEM_PROMPT = """Sen Türkiye MCP asistanısın. Türk hukuk, mali, ihale ve piyasa verileri konusunda uzmansın.
+SYSTEM_PROMPT = """Sen Türkiye MCP asistanısın — deneyimli bir Türk avukatı ve mali müşavir gibi davranan bir uzman yapay zekâsın. Türk hukuk, mali, ihale ve piyasa verileri konusunda uzmansın.
 
-Kullanıcıya Türkçe yanıt ver. Eldeki MCP araç sonuçlarını kullanarak doğru ve özlü cevaplar ver.
+Kullanıcıya Türkçe, profesyonel ama anlaşılır bir dille yanıt ver. Eldeki MCP araç sonuçlarını kullanarak doğru, gerekçeli ve kaynaklı cevaplar ver.
 
-YANIT FORMATI KURALLARI:
-1. Her araç sonucunu açıklayıcı bir şekilde sun — raw tablo YERİNE:
-   - Karar/kayıt için: Mahkeme/kurum adı, karar no, esas no, tarih, konu ÖZETİ
-   - Her sonucun "ne anlama geldiğini" ve "hukuki sonuçlarını" açıkla
-   - Kaynak belirt (hangi MCP aracı kullanıldı, hangi veri tabanı)
-2. Sonuçları markdown formatında sun — tablo, liste, kalın yazı kullan
-3. Hukuki terimleri açıkla (örn: "istinaf", "temyiz", "esas no" vb.)
-4. İlgili mevzuat, yönetmelik ve kanun atıfları ekle
-5. Sonuç yoksa genel bilgilendirme yap ama "veriyi şimdi kontrol edemiyorum" diye belirt
-6. Her yanıtın sonunda 📋 Kaynak bölümü ekle — hangi araç/veri tabanı kullanıldığını belirt"""
+TEMEL İLKELER:
+1. **Asla uydurma yapma.** Karar/esas numarası, tutar, oran gibi verileri YALNIZCA MCP araç sonuçlarından veya yüklenen belgeden al. Bilgi yoksa "bu veriyi şu an doğrulayamıyorum" de.
+2. **Belge varsa önce onu anla:** Yüklenen belgenin türünü, taraflarını ve konusunu kısaca özetle, sonra soruyu yanıtla.
+3. **İlgililik kontrolü:** Kullanıcının sorusu yüklenen belgeyle ilgisizse, önce kibarca "Bu soru yüklediğiniz belge ile doğrudan ilgili görünmüyor" diye belirt; ardından yine de elinden geldiğince yardımcı ol.
+4. **Çapraz hafıza:** Sağlanan "ilgili geçmiş kayıtlar" varsa, uygun yerde "Çalışma alanınızdaki '…' kaydında benzer bir durum var" şeklinde hatırlat.
+
+YANIT FORMATI:
+- Markdown kullan (tablo, liste, kalın yazı). Kararları daire/esas/karar no ve tarihiyle, her birinin ortaya koyduğu ilkeyle aktar.
+- Hukuki/mali terimleri kısaca açıkla; ilgili mevzuat (kanun/madde) atıflarını ekle.
+- Yanıtı **📋 Kaynak** bölümüyle bitir (kullanılan araç/veri tabanı).
+- Kesin tavsiye değil, bilgilendirme niteliğinde yaz; nihai karar için teyide/avukata yönlendir."""
 
 
 def _get_llm_config(request) -> tuple[str, str, str]:
@@ -2179,6 +2245,60 @@ def _extract_document_refs(text: str) -> list[dict]:
             })
 
     return refs[:20]  # Maksimum 20 referans
+
+
+# Belge türü tespiti için anahtar kelime kalıpları (öncelik sırasıyla)
+_DOC_TYPE_RULES = [
+    ("dava_dilekcesi", "Dava Dilekçesi", ["dava dilekçesi", "davaci", "davacı", "davalı", "talep ederim", "açıklamalar", "nöbetçi", "asliye hukuk mahkemesi̇ne", "mahkemesine"]),
+    ("temyiz_dilekcesi", "Temyiz/İstinaf Dilekçesi", ["temyiz", "istinaf", "bölge adliye", "bozulması"]),
+    ("mahkeme_karari", "Mahkeme Kararı", ["gerekçeli karar", "hüküm", "hukum", "karar verildi", "esas no", "karar no", "oybirliği", "oybirliğiyle"]),
+    ("ihtarname", "İhtarname", ["ihtarname", "ihtar ederim", "ihtaren", "noterliği"]),
+    ("icra_takibi", "İcra Takibi", ["icra", "ödeme emri", "odeme emri", "takip talebi", "haciz", "icra müdürlüğü"]),
+    ("sozlesme", "Sözleşme", ["sözleşme", "sozlesme", "taraflar", "işbu sözleşme", "madde 1", "akdedilmiştir"]),
+    ("fatura", "Fatura", ["fatura", "kdv", "vergi kimlik", "tutar", "toplam", "e-fatura", "e-arşiv"]),
+    ("ihale_dokumani", "İhale Dokümanı", ["ihale", "ekap", "idari şartname", "teknik şartname", "yaklaşık maliyet", "yeterlik"]),
+    ("resmi_yazi", "Resmi Yazı", ["t.c.", "sayı :", "konu :", "valiliği", "bakanlığı", "müdürlüğü"]),
+]
+
+
+def _classify_document(text: str) -> dict:
+    """Belge metnini sezgisel olarak sınıflandırır (LLM gerektirmez).
+
+    Returns: {type, type_label, subject, parties}
+    """
+    low = (text or "").lower()
+    doc_type, label = "belge", "Belge"
+    best = 0
+    for t, lbl, kws in _DOC_TYPE_RULES:
+        score = sum(1 for k in kws if k in low)
+        if score > best:
+            best, doc_type, label = score, t, lbl
+
+    # Taraflar
+    parties = []
+    for role_pat, role in [
+        (r"davac[ıi]\s*[:\-]\s*([^\n]{3,60})", "Davacı"),
+        (r"daval[ıi]\s*[:\-]\s*([^\n]{3,60})", "Davalı"),
+        (r"alacakl[ıi]\s*[:\-]\s*([^\n]{3,60})", "Alacaklı"),
+        (r"borçlu\s*[:\-]\s*([^\n]{3,60})", "Borçlu"),
+    ]:
+        m = re.search(role_pat, text or "", re.IGNORECASE)
+        if m:
+            parties.append({"rol": role, "ad": m.group(1).strip()})
+
+    # Konu
+    subject = ""
+    m = re.search(r"konu\s*[:\-]\s*([^\n]{5,120})", text or "", re.IGNORECASE)
+    if m:
+        subject = m.group(1).strip()
+    else:
+        for line in (text or "").splitlines():
+            s = line.strip()
+            if len(s) >= 12:
+                subject = s[:120]
+                break
+
+    return {"type": doc_type, "type_label": label, "subject": subject, "parties": parties}
 
 
 def _extract_text_from_pdf(content: bytes) -> tuple[str, dict]:
@@ -2560,10 +2680,25 @@ async def workspace_file_upload_endpoint(request):
     except Exception as e:
         parse_error = f"Çözümleme hatası: {e}"
 
+    # Belge zekâsı: türünü, taraflarını, konusunu tespit et
+    understanding = _classify_document(extracted_text) if extracted_text.strip() else {
+        "type": "belge", "type_label": "Belge", "subject": "", "parties": []
+    }
+
+    # Çapraz hafıza: diğer oturumlarda benzer dava/belge var mı?
+    related = []
+    try:
+        kw = [w for w in re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü]{5,}", understanding.get("subject", ""))][:6]
+        related = workspace.find_related(refs=refs, keywords=kw,
+                                         exclude_session_id=form.get("sessionId", ""))
+    except Exception:
+        related = []
+
     try:
         info = workspace.store_file(folder_id, filename, content, meta={
             "hasText": bool(extracted_text.strip()),
             "refCount": len(refs),
+            "docType": understanding.get("type"),
         })
     except Exception as e:
         return JSONResponse({"error": f"Dosya kaydedilemedi: {e}"}, status_code=500)
@@ -2576,6 +2711,8 @@ async def workspace_file_upload_endpoint(request):
         "full_text_length": len(extracted_text),
         "truncated": truncated,
         "references": refs,
+        "understanding": understanding,
+        "related": related,
         "parse_error": parse_error,
     })
 
@@ -2617,6 +2754,16 @@ async def ollama_models_endpoint(request):
             return JSONResponse({"ok": True, "models": models})
     except Exception as e:
         return JSONResponse({"ok": False, "models": [], "error": str(e)}, status_code=200)
+
+
+async def skills_endpoint(request):
+    """Yüklü uzmanlık yönergelerini (skills) listeler."""
+    if not SKILLS_AVAILABLE:
+        return JSONResponse({"skills": []})
+    try:
+        return JSONResponse({"skills": skills_engine.list_skill_meta()})
+    except Exception as e:
+        return JSONResponse({"skills": [], "error": str(e)})
 
 
 async def test_llm_endpoint(request):
@@ -2770,17 +2917,49 @@ async def chat_endpoint(request):
         except Exception:
             pass
 
+    # Belge türü + ilgili geçmiş kayıtlar (frontend'den)
+    doc_type = (body.get("doc_type") or "").strip()
+    related = body.get("related") or []
+
+    # Bağlama göre uzmanlık yönergelerini (skills) seç
+    skills_prompt = ""
+    if SKILLS_AVAILABLE:
+        try:
+            selected = skills_engine.select_skills(message, doc_type)
+            skills_prompt = skills_engine.build_skills_prompt(selected)
+        except Exception:
+            skills_prompt = ""
+
     # Belge bağlamı varsa sistem yönergesini güçlendir
     doc_system = ""
     if document_context:
+        dt_label = (" (" + doc_type + ")") if doc_type else ""
         doc_system = (
-            "\n\nKULLANICI BİR BELGE YÜKLEDİ. Aşağıdaki belge içeriğini esas alarak yanıt ver. "
-            "Belgedeki esas/karar numaralarını, tarafları ve konuyu özetle; ilgili EMSAL kararları "
-            "ve içtihatları MCP araç sonuçlarından detaylıca aktar.\n\n--- BELGE İÇERİĞİ ---\n"
+            f"\n\nKULLANICI BİR BELGE YÜKLEDİ{dt_label}. Önce belgenin türünü, taraflarını ve "
+            "konusunu kısaca özetle. Soru belgeyle ilgisizse kibarca belirt, sonra yine de yanıtla. "
+            "Belgeyle ilgiliyse esas/karar numaralarını ve konuyu esas alıp ilgili EMSAL kararları ve "
+            "içtihatları MCP araç sonuçlarından detaylıca aktar.\n\n--- BELGE İÇERİĞİ ---\n"
             + document_context + "\n--- BELGE SONU ---"
         )
 
-    full_system = SYSTEM_PROMPT + doc_system
+    # Çapraz hafıza: kullanıcının çalışma alanındaki benzer kayıtlar
+    related_system = ""
+    if related:
+        lines = []
+        for r in related[:5]:
+            m = r.get("matched", [{}])
+            tag = m[0].get("value", "") if m else ""
+            lines.append(f"- '{r.get('title','')}' ({r.get('folder','Genel')}) — eşleşme: {tag}")
+        related_system = (
+            "\n\nİLGİLİ GEÇMİŞ KAYITLAR (çalışma alanından): Aşağıdaki kayıtlarda benzer "
+            "belge/uyuşmazlık tespit edildi. Yanıtında uygun yerde kullanıcıyı bunlara yönlendir "
+            "('Çalışma alanınızdaki … kaydında benzer bir durum var' gibi):\n" + "\n".join(lines)
+        )
+
+    full_system = SYSTEM_PROMPT
+    if skills_prompt:
+        full_system += "\n\n" + skills_prompt
+    full_system += doc_system + related_system
     if tool_context:
         full_system += f"\n\nMCP araç sonuçları:\n\n{tool_context}"
 
@@ -2823,11 +3002,18 @@ async def chat_endpoint(request):
                 payload = {"model": model, "messages": messages, "max_tokens": 2048}
                 # gpt-oss gibi reasoning modelleri varsayılanda tüm bütçeyi
                 # gizli düşünceye harcayıp content'i boş bırakabiliyor.
-                # Ollama için reasoning_effort=low → modelin nihai yanıtı üretmesini sağlar.
-                if provider_id in ("ollama", "ollama_cloud"):
+                # reasoning_effort=low → nihai yanıtı üretmelerini sağlar.
+                # NOT: Bu parametre yalnızca reasoning destekleyen modellere gönderilir;
+                # gemma/llama gibi modeller 400 döndürür.
+                use_reasoning = provider_id in ("ollama", "ollama_cloud") and _is_reasoning_model(model)
+                if use_reasoning:
                     payload["reasoning_effort"] = "low"
 
                 resp = await client.post(provider_config["url"], headers=headers, json=payload)
+                # reasoning_effort'u kabul etmeyen model 400 dönerse parametresiz tekrar dene
+                if resp.status_code == 400 and "reasoning_effort" in payload:
+                    payload.pop("reasoning_effort", None)
+                    resp = await client.post(provider_config["url"], headers=headers, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
                 msg = data.get("choices", [{}])[0].get("message", {}) or {}
@@ -2881,6 +3067,7 @@ starlette_app = Starlette(
         Route("/api/chat/status", llm_status_endpoint, methods=["GET"]),
         Route("/api/chat/test", test_llm_endpoint, methods=["POST"]),
         Route("/api/ollama/models", ollama_models_endpoint, methods=["GET"]),
+        Route("/api/skills", skills_endpoint, methods=["GET"]),
         Route("/api/upload/pdf", upload_pdf_endpoint, methods=["POST"]),
         Route("/api/search/refs", search_document_refs_endpoint, methods=["POST"]),
         Route("/api/upload/uyap", upload_uyap_endpoint, methods=["POST"]),

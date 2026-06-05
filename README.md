@@ -151,6 +151,54 @@ claude mcp list
 
 ---
 
+## 🔌 SSE Bağlantısı (Geliştiriciler için)
+
+Türkiye MCP, **SSE (Server-Sent Events)** transport'u ile çalışır. Bu sayede hem yerel hem de uzak (ör. Railway, Docker) dağıtımlarda HTTP üzerinden bağlanılabilir.
+
+| Endpoint | Yöntem | Açıklama |
+|----------|--------|----------|
+| `/sse` | `GET` | SSE akışını açar; sunucu bir `session_id` ve mesaj endpoint'i döner |
+| `/messages/?session_id=…` | `POST` | JSON-RPC 2.0 mesajları (MCP protokolü) gönderilir |
+| `/health` | `GET` | JSON sağlık kontrolü (aktif modüller, skill sayısı) |
+| `/` | `GET` | Web dashboard (arayüz) |
+
+**Bağlantı akışı:**
+
+```
+1) GET /sse                         → text/event-stream açılır
+2) Sunucu "endpoint" event'i yollar → /messages/?session_id=<id>
+3) POST /messages/?session_id=<id>  → {"jsonrpc":"2.0","method":"tools/list",...}
+4) Yanıtlar /sse akışından event olarak gelir
+```
+
+**Hızlı test (curl):**
+
+```bash
+# SSE akışını dinle (session_id'yi buradan al)
+curl -N http://localhost:8080/sse
+
+# Başka bir terminalde araç listesini iste
+curl -X POST "http://localhost:8080/messages/?session_id=SESSION_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+> **Uzak dağıtım:** Railway/Docker üzerinde `PORT` otomatik atanır. Bağlantı URL'sini `https://<alan-adınız>/sse` olarak verin. Herhangi bir MCP uyumlu istemci (Claude Desktop/Code, Cursor, VS Code, kendi SDK'nız) bu endpoint'e bağlanabilir.
+
+---
+
+## 🧠 "Avukat gibi" yetenekler
+
+Türkiye MCP yalnızca arama yapmaz; **bağlama göre uzmanlaşır**:
+
+- **Belge zekâsı** — Yüklenen belgenin **türünü** (dava dilekçesi, mahkeme kararı, sözleşme, ihtarname, fatura…), **taraflarını** ve **konusunu** otomatik tespit eder.
+- **İlgililik denetimi** — Sorunuz yüklediğiniz belgeyle ilgisizse model **kibarca uyarır**, sonra yine de yardımcı olur.
+- **Çapraz hafıza** — Aynı esas/karar numarası veya benzer konu başka bir **klasör/sohbette** geçiyorsa, *"Çalışma alanınızdaki '…' kaydında benzer bir durum var"* diyerek sizi yönlendirir.
+- **Skills (uzmanlık yönergeleri)** — [`skills/`](skills) dizinindeki [Anthropic skill formatında](https://github.com/anthropics/skills) oyun kitapları (hukuki emsal araştırması, belge analizi, mali müşavirlik, ihale) bağlama göre seçilip modele enjekte edilir. Yeni bir `skills/<ad>/SKILL.md` ekleyerek modeli kolayca yeni bir uzmanlıkla donatabilirsiniz.
+- **Durdurma** — Yanıt üretilirken **⏹ durdurma** düğmesiyle anında iptal edebilirsiniz.
+
+---
+
 ## 🛠️ Araçlar (Tools)
 
 <details>

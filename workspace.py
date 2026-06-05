@@ -339,6 +339,68 @@ def delete_file(folder_id: str, name: str) -> bool:
 # Birleşik anlık görüntü
 # ----------------------------------------------------------------------
 
+def _folder_name(folder_id: Optional[str]) -> str:
+    if not folder_id:
+        return "Genel"
+    for f in _load_index().get("folders", []):
+        if f["id"] == folder_id:
+            return f["name"]
+    return "Genel"
+
+
+def find_related(refs: Optional[List[Dict[str, Any]]] = None,
+                 keywords: Optional[List[str]] = None,
+                 exclude_session_id: str = "",
+                 limit: int = 5) -> List[Dict[str, Any]]:
+    """Tüm oturumlarda benzer belge/dava arar (çapraz hafıza).
+
+    Eşleşme: aynı referans değeri (esas/karar/dosya no) veya anahtar kelime
+    örtüşmesi. Bir avukatın "bu davandaki dosyanda benzeri durum var" demesini
+    sağlamak için kullanılır.
+    """
+    ref_values = set()
+    for r in (refs or []):
+        v = str(r.get("value", "")).strip()
+        if v:
+            ref_values.add(v)
+    kw = set(k.lower() for k in (keywords or []) if len(k) >= 4)
+
+    results = []
+    for meta in _load_index().get("sessions", []):
+        sid = meta.get("id")
+        if sid == exclude_session_id:
+            continue
+        if not meta.get("attachmentCount") and not ref_values:
+            # Eki olmayan oturumlarda yalnızca başlık kelime eşleşmesine bak
+            pass
+        session = get_session(sid)
+        if not session:
+            continue
+        matched = []
+        # Ek belgelerin referansları
+        for att in session.get("attachments", []):
+            for r in att.get("refs", []):
+                v = str(r.get("value", "")).strip()
+                if v and v in ref_values:
+                    matched.append({"kind": "ref", "value": v, "doc": att.get("name", "")})
+        # Başlık / mesaj anahtar kelime örtüşmesi
+        hay = (meta.get("title", "") + " " + " ".join(
+            m.get("text", "") for m in session.get("messages", [])[:4])).lower()
+        kw_hits = [k for k in kw if k in hay]
+        if kw_hits and not matched:
+            matched.append({"kind": "keyword", "value": ", ".join(kw_hits[:3])})
+        if matched:
+            results.append({
+                "sessionId": sid,
+                "title": meta.get("title", "Sohbet"),
+                "folder": _folder_name(meta.get("folderId")),
+                "matched": matched[:3],
+            })
+        if len(results) >= limit:
+            break
+    return results
+
+
 def snapshot() -> Dict[str, Any]:
     """Tüm workspace ağacını döndürür (klasörler + oturum metaları)."""
     idx = _load_index()

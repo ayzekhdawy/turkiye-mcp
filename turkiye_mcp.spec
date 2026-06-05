@@ -146,6 +146,8 @@ hidden_imports = [
     "uyap_module.parser",
     # Çalışma alanı kalıcılığı (klasör/oturum/dosya)
     "workspace",
+    # Uzmanlık yönergeleri (skill playbook'ları)
+    "skills",
     # Keyring
     "keyring",
     "keyring.backends",
@@ -166,6 +168,11 @@ for pkg in ["pydantic", "cryptography", "httpx", "h2", "hpack", "fastmcp", "uvic
         datas += copy_metadata(pkg)
     except Exception:
         pass
+
+# Skill playbook'ları (skills/<ad>/SKILL.md) — EXE içine kopyalanır
+_skills_dir = os.path.join(PROJECT_ROOT, "skills")
+if os.path.isdir(_skills_dir):
+    datas.append((_skills_dir, "skills"))
 
 # magika model dosyaları (BDDK, Sigorta Tahkim, Borsa modülleri için gerekli)
 try:

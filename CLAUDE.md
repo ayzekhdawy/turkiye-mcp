@@ -13,6 +13,15 @@ ASGI uygulaması (Starlette + FastMCP), pywebview ile masaüstü penceresi.
 - **JS ile kurulan string'lere apostrof/tek tırnak literal koyma** — inline handler argümanları değişken birleştirme olmalı (`fn(\'' + id + '\')`), literal değil. Klasör/oturum ağacı `data-*` attribute + delegated listener kullanır (`setupTree()`).
 - **gpt-oss / reasoning modelleri için `reasoning_effort: "low"`** — Ollama'da gpt-oss varsayılanda tüm token bütçesini gizli düşünceye harcayıp `content`'i BOŞ döndürür. Ollama sağlayıcılarında `reasoning_effort=low` gönderilir; ayrıca content boşsa `reasoning` alanına fallback yapılır.
 
+## 🆕 v1.5.0 — Avukat Modu (Belge Zekâsı, Skills, Çapraz Hafıza, Durdurma)
+- **skills.py + skills/<ad>/SKILL.md** — Anthropic skill formatında oyun kitapları. `select_skills(message, doc_type)` bağlama göre seçer, `build_skills_prompt` sistem promptuna enjekte eder. EXE'de spec `datas`'a `skills/` eklenir.
+- **Belge zekâsı** — `_classify_document(text)` belge türü/taraf/konu çıkarır (sezgisel, LLM gerektirmez). Upload yanıtında `understanding` döner.
+- **Çapraz hafıza** — `workspace.find_related(refs, keywords, exclude_session_id)` tüm oturumlarda aynı esas/karar no veya konu eşleşmesi arar. Upload yanıtında `related` döner; chat'te "benzer kayıt var" olarak enjekte edilir.
+- **chat_endpoint** artık `doc_type` + `related` alır; SYSTEM_PROMPT avukat personası + ilgililik denetimi.
+- **Durdurma butonu** — frontend `AbortController`; gönder butonu `setSendMode(true)` ile durdurma butonuna döner.
+- **reasoning_effort KAPISI (kritik):** `reasoning_effort: "low"` SADECE reasoning modellerine (`_is_reasoning_model()` → gpt-oss, deepseek, qwen3, minimax, glm-4.6…) gönderilir. gemma/llama gibi modeller bu parametreyle **400** döndürür. Ek güvenlik: 400 gelirse parametre çıkarılıp tekrar denenir.
+- Yeni endpoint: `/api/skills`. `/health` artık `skills_count` döndürür.
+
 ## 🆕 v1.4.0 — Çalışma Alanı, Ollama Cloud, Belge/Emsal
 - **workspace.py** — sunucu taraflı klasör/oturum/dosya kalıcılığı (JSON). Veri dizini: `%LOCALAPPDATA%/TurkiyeMCP/workspace` (veya `TURKIYE_MCP_DATA_DIR`). Endpoint'ler: `/api/workspace`, `/api/workspace/folder`, `/api/workspace/session` (GET+POST), `/api/workspace/session/delete`, `/api/workspace/file`, `/api/workspace/files`, `/api/workspace/file/delete`.
 - **Ollama Cloud** sağlayıcısı (`ollama_cloud`, ollama.com, API key) + yerel `ollama` için **dinamik model listesi** (`/api/ollama/models` → localhost:11434/api/tags). Kullanıcının cloud-proxy modelleri (`gpt-oss:120b-cloud` vb.) otomatik görünür.
