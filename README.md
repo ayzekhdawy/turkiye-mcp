@@ -1,239 +1,205 @@
-# 🇹🇷 Türkiye MCP Server
+<div align="center">
 
-**Türkiye Hukuk, Mali, İhale ve Piyasa Verileri — Birleştirilmiş MCP Sunucusu**
+<img src="T_MCP.png" alt="Türkiye MCP" width="120" />
 
-5 farklı MCP sunucusunu tek bir projede birleştiren, [Railway](https://railway.app) üzerinde yayınlanabilir, SSE transport ile çalışan bir MCP (Model Context Protocol) sunucusu.
+# 🇹🇷 Türkiye MCP
+
+**Türk hukuk, mali, ihale ve piyasa verileri için yapay zekâ asistanı + MCP sunucusu**
+
+Tek bir masaüstü uygulamasında: Yargıtay, Danıştay, Anayasa Mahkemesi, KİK, Resmi Gazete, GİB, SGK, EKAP ihaleleri, BIST ve daha fazlasına doğal dille erişin. Belge yükleyin, emsal kararları çektirin, sohbetlerinizi klasörlerde saklayın.
+
+[![Release](https://img.shields.io/github/v/release/ayzekhdawy/turkiye-mcp?label=s%C3%BCr%C3%BCm&color=e23b4e)](https://github.com/ayzekhdawy/turkiye-mcp/releases/latest)
+[![Download](https://img.shields.io/github/downloads/ayzekhdawy/turkiye-mcp/total?label=indirme&color=2fbf71)](https://github.com/ayzekhdawy/turkiye-mcp/releases/latest)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
+![Python](https://img.shields.io/badge/python-3.11%2B-3776ab)
+![License](https://img.shields.io/badge/lisans-MIT-green)
+
+### [⬇️ Windows için indir (TurkiyeMCP.exe)](https://github.com/ayzekhdawy/turkiye-mcp/releases/latest)
+
+</div>
+
+<p align="center">
+  <img src="docs/dashboard.png" alt="Türkiye MCP arayüzü — çalışma alanı, belge eki ve emsal akışı" width="100%" />
+</p>
 
 ---
 
-## 📊 İçerik
+## ✨ Öne Çıkanlar
 
-| Kaynak | Açıklama | Araç Sayısı |
-|--------|----------|-------------|
-| ⚖️ **Yargi MCP** | Yargıtay, Danıştay, Anayasa, KİK, Rekabet, Sayıştay, BDDK, KVKK, Sigorta Tahkim, Bedesten, Uyuşmazlık, EMSAL | ~13 |
-| 📋 **Mevzuat MCP** | Mevzuat Bilgi Sistemi, kanun, KHK, yönetmelik arama | ~2 |
-| 🏗️ **İhale MCP** | Kamu ihale arama (EKAP v2), resmi ilanlar (ilan.gov.tr) | ~3 |
-| 📈 **Borsa MCP** | BIST hisseler, kripto para, döviz kurları | ~3 |
-| 💰 **Mali Müşavir MCP** | Resmi Gazete, GİB, İVD, SGK, İŞKUR, TÜRMOB, İSMMMO | ~10 |
+- **🤖 Doğal dil sohbeti** — "2025 asgari ücret ne kadar?", "Yargıtay mülkiyet hakkı kararları", "Ankara'daki aktif ihaleler" gibi sorulara, ilgili devlet veritabanlarını otomatik tarayarak **kaynaklı ve markdown formatında** yanıt verir.
+- **📄 Belge yükle → sor → emsal çektir** — PDF, UYAP (EYP/UDF) veya metin belgesi yükleyin; esas/karar numaraları otomatik çıkarılır, belge bağlam olarak modele iletilir ve **⚖ Emsal** ile ilgili içtihatlar getirilir.
+- **🗂️ Çalışma alanı** — Sohbetlerinizi **klasörlere** ayırın, sürükle-bırakla taşıyın. Oturumlar **sunucuda saklanır**; uygulamayı kapatıp açsanız bile **kaldığınız yerden devam** edersiniz.
+- **🔌 Kendi modelin (BYOK)** — OpenRouter, OpenAI, Anthropic, Google Gemini, **Ollama (Yerel)** ve **Ollama Cloud** desteği. Yerel Ollama seçilince makinenizdeki modeller (cloud-proxy dahil: `gpt-oss:120b-cloud` vb.) otomatik listelenir. API anahtarınız yalnızca cihazınızda saklanır.
+- **🧩 MCP sunucusu** — Aynı araçlar Claude Desktop, Claude Code, Cursor ve VS Code'a **MCP (Model Context Protocol)** üzerinden bağlanır.
+- **🖥️ Tek dosya, kurulumsuz** — `TurkiyeMCP.exe`'yi çift tıklayın; ek kurulum gerekmez. Veriler **cihazınızda** kalır.
 
-**Toplam: ~31+ araç** | **1 sağlık kontrolü**
+---
+
+## 📚 Kapsanan Veri Kaynakları
+
+| Alan | Kaynaklar | Araç |
+|------|-----------|------|
+| ⚖️ **Hukuk / Yargı** | Yargıtay · Danıştay · Anayasa Mahkemesi · KİK · Rekabet Kurumu · Sayıştay · BDDK · KVKK · Sigorta Tahkim · Uyuşmazlık · **EMSAL** · Bedesten | ~13 |
+| 📋 **Mevzuat** | Mevzuat Bilgi Sistemi (kanun, KHK, yönetmelik, tebliğ) | ~2 |
+| 💰 **Mali / SMMM** | Resmi Gazete · GİB sirküler · İVD (e-Fatura) · SGK · İŞKUR · TÜRMOB · İSMMMO · asgari ücret · vergi takvimi | ~10 |
+| 🏗️ **İhale** | Kamu ihaleleri (EKAP v2) · resmi ilanlar (ilan.gov.tr) | ~3 |
+| 📈 **Piyasa** | BIST hisseleri · döviz kurları · kripto | ~3 |
+
+**Toplam ~31+ araç** — tümü tek arayüzde.
 
 ---
 
 ## 🚀 Hızlı Başlangıç
 
-### Railway'de Yayınlama
+### Seçenek 1 — Hazır Uygulama (önerilen)
 
-1. Repo'yu fork'la veya klonla
-2. [Railway](https://railway.app)'de yeni proje oluştur
-3. GitHub repo'yu bağla
-4. Otomatik deploy başlar
-5. Domain atanır (ör: `https://web-production-xxxx.up.railway.app`)
+1. **[En son sürümü indirin](https://github.com/ayzekhdawy/turkiye-mcp/releases/latest)** → `TurkiyeMCP.exe`
+2. Çift tıklayarak çalıştırın (ilk açılışta modüller ~20-30 sn yüklenir).
+3. Sağ üstten **⚙ Ayarlar** → sağlayıcı ve model seçin → **⚡ Bağlantıyı Test Et**.
+4. Soru sorun, belge yükleyin, klasör oluşturun.
 
-### Lokal Çalıştırma
+> 💡 **Ücretsiz/yerel kullanım:** [Ollama](https://ollama.com) kuruluysa, Ayarlar'da **Ollama (Yerel)** seçtiğinizde modelleriniz otomatik listelenir ve API anahtarı gerekmez.
+
+### Seçenek 2 — Kaynaktan Çalıştırma
 
 ```bash
-# Gereksinimleri yükle
+git clone https://github.com/ayzekhdawy/turkiye-mcp.git
+cd turkiye-mcp
 pip install -r requirements.txt
 
-# Sunucuyu başlat
-python app.py
+# Masaüstü uygulaması (pencere + tray)
+python local_run.py
 
-# Tarayıcıda aç
-# http://localhost:8080 → Web dashboard
-# http://localhost:8080/sse → MCP SSE endpoint
-# http://localhost:8080/health → JSON sağlık kontrolü
+# veya sadece web sunucusu
+python -m uvicorn app:starlette_app --host 127.0.0.1 --port 8080
+# → http://localhost:8080
 ```
 
 ---
 
-## 🔗 MCP Client Yapılandırması
+## 🖱️ Arayüz Rehberi
 
-### Claude Desktop
+| Bölüm | İşlev |
+|-------|-------|
+| **+ Yeni Sohbet / 🗂 Yeni Klasör** | Sohbet başlatın, klasör oluşturun; sohbetleri sürükle-bırakla klasöre taşıyın |
+| **Çalışma Alanı** | Klasör ağacı; oturumlar sunucuda kalıcı, en son oturum otomatik açılır |
+| **📎 Belge ekle** | Composer'daki ataç ile PDF/UYAP/TXT yükleyin → ek "chip" olarak iliştirilir, referanslar çıkarılır |
+| **⚖ Emsal** | Ekli belge için emsal kararları ve içtihatları tek tıkla aratır |
+| **Model chip / ⚙ Ayarlar** | Sağlayıcı + model + API anahtarı; sağlayıcı başına ayrı anahtar hatırlanır; "Bağlantıyı Test Et" |
+| **Modüller** | Aktif/pasif modül sayısı (Hukuk, Mali, İhale, Borsa) gerçek zamanlı |
+| **📋 / 📄** | Her yanıtı panoya kopyalayın veya Word (.doc) olarak indirin |
 
-`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) veya
-`%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+---
+
+## 🔌 Desteklenen LLM Sağlayıcıları
+
+| Sağlayıcı | API Anahtarı | Not |
+|-----------|:------------:|-----|
+| **Ollama (Yerel)** | ❌ | `localhost:11434`; modeller otomatik listelenir (cloud-proxy dahil) |
+| **Ollama Cloud** | ✅ | [ollama.com](https://ollama.com) anahtarı; `gpt-oss`, `deepseek-v3.1`, `qwen3-coder` vb. |
+| **OpenRouter** | ✅ | Tek anahtarla çok sayıda model |
+| **OpenAI** | ✅ | `gpt-4o`, `gpt-4o-mini` … |
+| **Anthropic** | ✅ | `claude-*` |
+| **Google Gemini** | ✅ | `gemini-2.0-flash` … |
+
+> 🔒 Anahtarlar yalnızca cihazınızda (`localStorage` + yerel keyring) saklanır, hiçbir sunucuya gönderilmez.
+
+---
+
+## 🧩 MCP Sunucusu Olarak Kullanım
+
+Türkiye MCP, aynı araçları **Model Context Protocol** üzerinden IDE/asistanlara açar. Sunucu çalışırken (`http://localhost:8080`) aşağıdaki istemcilere ekleyebilirsiniz.
+
+<details>
+<summary><b>Claude Desktop</b></summary>
+
+`%APPDATA%\Claude\claude_desktop_config.json` (Windows) / `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
 ```json
 {
   "mcpServers": {
-    "turkiye": {
-      "url": "https://web-production-4fd5e.up.railway.app/sse"
-    }
+    "turkiye": { "url": "http://localhost:8080/sse" }
   }
 }
 ```
+</details>
 
-### Claude Code (CLI)
+<details>
+<summary><b>Claude Code (CLI)</b></summary>
 
 ```bash
-# SSE transport ile ekle
-claude mcp add turkiye --transport sse https://web-production-4fd5e.up.railway.app/sse
-
-# Doğrula
+claude mcp add turkiye --transport sse http://localhost:8080/sse
 claude mcp list
 ```
+</details>
 
-### Cursor
-
-`.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "turkiye": {
-      "url": "https://web-production-4fd5e.up.railway.app/sse"
-    }
-  }
-}
-```
-
-### VS Code (Copilot)
-
-`.vscode/mcp.json`:
+<details>
+<summary><b>Cursor</b> — <code>.cursor/mcp.json</code></summary>
 
 ```json
-{
-  "servers": {
-    "turkiye": {
-      "type": "sse",
-      "url": "https://web-production-4fd5e.up.railway.app/sse"
-    }
-  }
-}
+{ "mcpServers": { "turkiye": { "url": "http://localhost:8080/sse" } } }
 ```
+</details>
 
-### Lokal Kullanım
+<details>
+<summary><b>VS Code (Copilot)</b> — <code>.vscode/mcp.json</code></summary>
 
 ```json
-{
-  "mcpServers": {
-    "turkiye-local": {
-      "url": "http://localhost:8080/sse"
-    }
-  }
-}
+{ "servers": { "turkiye": { "type": "sse", "url": "http://localhost:8080/sse" } } }
 ```
+</details>
 
 ---
 
 ## 🛠️ Araçlar (Tools)
 
-### ⚖️ Yargı (Hukuk)
-
-| Araç | Açıklama | Parametreler |
-|------|----------|-------------|
-| `search_bedesten_unified` | Birden fazla Türk mahkemesinde birleştirilmiş arama | `keyword` (zorunlu), `court_types` (isteğe bağlı: `YARGITAYKARARI`, `DANISTAYKARAR`, `YERELHUKUK`, `ISTINAFHUKUK`, `KYB`), `page_number` |
-| `get_bedesten_document` | Bedesten'den belirli bir kararın tam metnini getirir | `document_id` (zorunlu) |
-| `search_anayasa_unified` | Anayasa Mahkemesi kararlarında arama | `keywords` (zorunlu), `decision_type` (`bireysel_basvuru`, `itiraz`, `genel_kurul`), `page` |
-| `search_kik_v2_decisions` | Kamu İhale Kurumu karar arama | `decision_type` (`uyusmazlik`, `idari`, `onarim`), `keyword`, `karar_no` |
-| `search_rekabet_kurumu` | Rekabet Kurumu karar arama | `keyword`, `page` |
-| `search_sayistay_unified` | Sayıştay karar arama | `decision_type` (`genel_kurul`, `dava_daireleri`, `tetkik_kurulu`), `keyword`, `page` |
-| `search_kvkk_decisions` | KVKK (Kişisel Verilerin Korunması) karar arama | `keyword`, `page` |
-| `search_bddk_decisions` | BDDK (Bankacılık Düzenleme) karar arama | `keyword`, `page` |
-| `search_sigorta_tahkim` | Sigorta Tahkim Komisyonu karar arama | `keyword`, `page` |
-| `search_uyusmazlik` | Uyuşmazlık Mahkemesi karar arama | `keyword`, `page` |
-| `search_emsal` | EMSAL (UYAP Örnek Kararlar) arama | `keyword`, `page` |
-
-#### Bedesten Mahkeme Türleri
-
-| Kod | Mahkeme |
-|-----|---------|
-| `YARGITAYKARARI` | Yargıtay (Temyiz) |
-| `DANISTAYKARAR` | Danıştay (İdari Yargı) |
-| `YERELHUKUK` | Yerel Hukuk Mahkemeleri |
-| `ISTINAFHUKUK` | İstinaf Mahkemeleri (Bölge Adliye) |
-| `KYB` | Kanun Yararına Bozma |
-
-### 💰 Mali Müşavir
-
-| Araç | Açıklama | Parametreler |
-|------|----------|-------------|
-| `search_resmi_gazete` | Resmi Gazete'de belge arama | `anahtar_kelime` (zorunlu), `belge_turu` (`kanun`, `khk`, `cbk`, `yonetmelik`, `teblig`, `sirkuler`, `genelge`), `baslangic_tarihi`, `bitis_tarihi` (YYYY-MM-DD), `sayfa` |
-| `get_daily_bulletin` | Belirli bir tarihin Resmi Gazete bültenini getirir | `tarih` (YYYY-MM-DD, boş ise bugün) |
-| `get_recent_mali_changes` | Son N günün mali belgelerini getirir | `gun` (varsayılan: 7) |
-| `search_gib_sirkuler` | GİB sirkülerlerinde arama | `anahtar_kelime` (zorunlu), `sirkuler_turu` (`vergi_sirkuleri`, `ic_genelge`, `duyuru`, `teblig`), `yil`, `sayfa` |
-| `get_tax_calendar` | Vergi takvimi bilgileri | `yil` (isteğe bağlı) |
-| `check_efatura_taxpayer` | VKN/TCKN ile e-Fatura mükellef sorgulama | `vergi_kimlik_no` (zorunlu, 10 veya 11 hane) |
-| `get_asgari_ucret` | Asgari ücret bilgileri | `yil` (isteğe bağlı) |
-| `get_prim_matrahi` | SGK prim matrahı ve oranları | `yil` (isteğe bağlı) |
-| `get_turmob_pratik_bilgiler` | TÜRMOB pratik bilgileri | `kategori` (isteğe bağlı) |
-| `get_ismmmo_pratik_bilgiler` | İSMMMO pratik bilgileri | `kategori` (isteğe bağlı) |
-
-### 🏗️ İhale
-
-| Araç | Açıklama | Parametreler |
-|------|----------|-------------|
-| `search_tenders` | Kamu ihalelerinde arama (EKAP v2) | `search_text`, `limit` (varsayılan: 10) |
-| `get_recent_tenders` | Son N günün ihalelerini getirir | `days` (varsayılan: 7), `limit` (varsayılan: 10) |
-| `search_ilan_ads` | Resmi ilan arama (ilan.gov.tr) | `search_text`, `max_result_count` (varsayılan: 12) |
-
-### 📈 Borsa
-
-| Araç | Açıklama | Parametreler |
-|------|----------|-------------|
-| `get_bist_stock` | BIST hisse senedi verileri | `symbol` (zorunlu, örn: `THYAO`, `GARAN`) |
-| `get_fx_rates` | Güncel döviz kurları | (parametre yok) |
-| `get_crypto` | Kripto para verileri | `symbol` (zorunlu, örn: `BTC`, `ETH`) |
-
-### 🏥 Sağlık
+<details>
+<summary><b>⚖️ Hukuk / Yargı</b></summary>
 
 | Araç | Açıklama |
 |------|----------|
-| `check_health` | Tüm modüllerin aktif/pasif durumunu listeler |
+| `search_bedesten_unified` | Yargıtay/Danıştay/yerel/istinaf birleşik arama (`court_types`) |
+| `get_bedesten_document` | Karar tam metni (`document_id`) |
+| `search_anayasa_unified` | Anayasa Mahkemesi (bireysel başvuru / itiraz / genel kurul) |
+| `search_kik_v2_decisions` | KİK kararları (uyuşmazlık / idari / onarım) |
+| `search_rekabet_kurumu` · `search_sayistay_unified` | Rekabet Kurumu · Sayıştay |
+| `search_kvkk_decisions` · `search_bddk_decisions` | KVKK · BDDK |
+| `search_sigorta_tahkim` · `search_uyusmazlik` · `search_emsal` | Sigorta Tahkim · Uyuşmazlık · EMSAL |
 
----
+**Bedesten mahkeme kodları:** `YARGITAYKARARI`, `DANISTAYKARAR`, `YERELHUKUK`, `ISTINAFHUKUK`, `KYB`
+</details>
 
-## 💬 Örnek Kullanımlar (Claude ile)
+<details>
+<summary><b>💰 Mali / Mali Müşavir</b></summary>
 
-### Hukuk
+| Araç | Açıklama |
+|------|----------|
+| `search_resmi_gazete` · `get_daily_bulletin` · `get_recent_mali_changes` | Resmi Gazete arama / günlük bülten / son N gün |
+| `search_gib_sirkuler` · `get_tax_calendar` | GİB sirküleri · vergi takvimi |
+| `check_efatura_taxpayer` | VKN/TCKN ile e-Fatura mükellef sorgulama |
+| `get_asgari_ucret` · `get_prim_matrahi` | Asgari ücret · SGK prim matrahı |
+| `get_turmob_pratik_bilgiler` · `get_ismmmo_pratik_bilgiler` | TÜRMOB · İSMMMO pratik bilgiler |
+</details>
+
+<details>
+<summary><b>🏗️ İhale &nbsp;·&nbsp; 📈 Piyasa &nbsp;·&nbsp; 🏥 Sağlık</b></summary>
+
+| Araç | Açıklama |
+|------|----------|
+| `search_tenders` · `get_recent_tenders` · `search_ilan_ads` | EKAP ihale arama · son N gün · resmi ilanlar |
+| `get_bist_stock` · `get_fx_rates` · `get_crypto` | BIST hisse · döviz · kripto |
+| `check_health` | Tüm modüllerin durumu |
+</details>
+
+### Örnek sorular
+
 ```
-"Yargıtay 'mülkiyet hakkı' ile ilgili kararları ara"
-"Danıştay 'kamu ihalesi' kararlarını listele"
-"Anayasa Mahkemesi 'ifade özgürlüğü' bireysel başvuru kararları"
-"KİK uyuşmazlık kararlarında 'ihale süresi' ara"
-"EMSAL kararlarda 'tazminat' ara"
+"Yargıtay 'kira tespiti' kararlarını ara ve emsalleri özetle"
+"2025 asgari ücret brüt/net ve SGK prim oranları"
+"GİB sirkülerlerinde 'KDV tevkifatı' ara"
+"Ankara'daki aktif yapım ihaleleri"
+"BIST THYAO ve güncel döviz kurları"
 ```
-
-### Mali
-```
-"2025 asgari ücret ne kadar?"
-"GİB sirkülerlerinde 'KDV' ara"
-"1234567890 VKN e-Fatura mükellef mi?"
-"Bugünkü Resmi Gazete bültenini göster"
-"Son 7 günde yayımlanan mali belgeler"
-"Vergi takvimini getir"
-"SGK prim oranları 2025"
-```
-
-### İhale
-```
-"Ankara'daki aktif ihaleler"
-"Son 30 gündeki yapım ihaleleri"
-"'yol yapım' ihalelerini ara"
-"Resmi ilanlarda 'taşınmaz satış' ara"
-```
-
-### Borsa
-```
-"BIST THYAO hisse verisi"
-"Güncel döviz kurları"
-"Bitcoin fiyatı"
-"ETH kripto verisi"
-```
-
----
-
-## 🌐 Web Dashboard
-
-Sunucu yayınlandığında kök URL'de bir web dashboard bulunur:
-
-- **`/`** → HTML dashboard (modül durumu, araç listesi, bağlantı bilgisi)
-- **`/health`** → JSON sağlık kontrolü endpoint'i
-- **`/sse`** → MCP SSE endpoint (client bağlantısı için)
-- **`/messages/`** → MCP JSON-RPC mesaj endpoint'i
-
-Dashboard, modüllerin aktif/pasif durumunu gerçek zamanlı gösterir ve her MCP client için yapılandırma şablonu sunar.
 
 ---
 
@@ -241,71 +207,74 @@ Dashboard, modüllerin aktif/pasif durumunu gerçek zamanlı gösterir ve her MC
 
 ```
 turkiye-mcp/
-├── app.py                    # Ana ASGI uygulaması (dashboard + MCP)
-├── server.py                 # Alternatif doğrudan MCP sunucusu
-├── requirements.txt          # Python bağımlılıkları
-├── Dockerfile                 # Docker yapılandırması
-├── Procfile                   # Railway Procfile
-├── pyproject.toml             # Paket yapılandırması
-│
-├── yargitay_mcp_module/      # Yargıtay modülü
-├── danistay_mcp_module/       # Danıştay modülü
-├── emsal_mcp_module/         # EMSAL modülü
-├── anayasa_mcp_module/       # Anayasa Mahkemesi modülü
-├── kik_mcp_module/           # KİK modülü
-├── rekabet_mcp_module/       # Rekabet Kurumu modülü
-├── sayistay_mcp_module/      # Sayıştay modülü
-├── bddk_mcp_module/          # BDDK modülü
-├── kvkk_mcp_module/          # KVKK modülü
-├── sigorta_tahkim_mcp_module/# Sigorta Tahkim modülü
-├── bedesten_mcp_module/      # Bedesten modülü
-├── uyusmazlik_mcp_module/    # Uyuşmazlık Mahkemesi modülü
-├── yargi_gib_module/         # Yargı GİB modülü
-│
-├── mevzuat_search_module/    # Mevzuat arama modülü
-├── resmi_gazete_module/      # Resmi Gazete modülü
-├── mevzuat_module/           # Mevzuat modülü
-├── gib_module/               # GİB modülü
-├── ivd_module/               # İVD (e-Fatura) modülü
-├── sgk_module/               # SGK modülü
-├── iskur_module/             # İŞKUR modülü
-├── turmob_module/            # TÜRMOB modülü
-├── ismmmo_module/            # İSMMMO modülü
-│
-├── ihale_module/             # İhale modülü (EKAP + İlan)
-├── borsa_module/             # Borsa modülü
-├── providers/                # Borsa veri sağlayıcıları
-├── borsa_models/             # Borsa modelleri
+├── app.py            # ASGI uygulaması: dashboard arayüzü + tüm endpoint'ler + MCP mount
+├── workspace.py      # Sunucu taraflı klasör / oturum / dosya kalıcılığı (JSON)
+├── local_run.py      # Masaüstü giriş noktası: sunucu + pywebview penceresi + tray
+├── turkiye_mcp.spec  # PyInstaller derleme spec'i
+├── uyap_module/      # UYAP EYP/UDF belge ayrıştırıcı
+└── *_mcp_module/ , *_module/   # Her veri kaynağı için ayrı modül (graceful loading)
 ```
 
-### Graceful Loading
+- **Graceful loading:** Her modül bağımsız yüklenir; biri başarısız olursa diğerleri çalışmaya devam eder (`MODULES_AVAILABLE`).
+- **Kalıcılık:** Çalışma alanı verisi `%LOCALAPPDATA%\TurkiyeMCP\workspace` altında saklanır (`TURKIYE_MCP_DATA_DIR` ile değiştirilebilir).
+- **Transport:** Web dashboard (`/`), JSON sağlık (`/health`), REST API (`/api/*`), MCP SSE (`/sse`).
 
-Her modül ayrı ayrı yüklenir. Bir modül yüklenemezse (örneğin bir bağımlılık eksikse), sunucu diğer modüllerle çalışmaya devam eder. `MODULES_AVAILABLE` dict'i her modülün durumunu takip eder ve ilgili araçlar sadece modül aktifse kaydedilir.
-
-### Transport
-
-- **SSE (Server-Sent Events)**: Remote (Railway) deployment için
-- Client → `GET /sse` → Session endpoint alır → `POST /messages/?session_id=...` ile JSON-RPC gönderir
-
----
-
-## 🔧 Ortam Değişkenleri
+### Önemli ortam değişkenleri
 
 | Değişken | Varsayılan | Açıklama |
 |----------|-----------|----------|
-| `PORT` | `8080` | Sunucu portu (Railway otomatik atar) |
-| `MCP_HOST` | `0.0.0.0` | Bağlanma adresi |
+| `PORT` | `8080` | Sunucu portu |
+| `TURKIYE_MCP_DATA_DIR` | `%LOCALAPPDATA%\TurkiyeMCP` | Çalışma alanı veri dizini |
+| `TURKIYE_MCP_LOCAL` | — | `1` ise yerel mod (keyring ile anahtar saklama) |
+
+---
+
+## 📦 Sürüm & Derleme (CI/CD)
+
+EXE derlemesi **GitHub Actions** ile otomatiktir. Yeni sürüm yayınlamak için tek yapılması gereken bir etiket (tag) göndermektir:
+
+```bash
+# pyproject.toml ve release_notes.md güncellendikten sonra
+git tag v1.5.0
+git push origin v1.5.0
+```
+
+`v*` etiketi push edildiğinde [`build-exe.yml`](.github/workflows/build-exe.yml) Windows'ta EXE'yi derler, `release_notes.md` ile bir GitHub Release oluşturur ve `TurkiyeMCP.exe`'yi asset olarak yükler.
+
+**Yerel derleme:**
+
+```bash
+pip install pyinstaller
+python -m PyInstaller turkiye_mcp.spec --noconfirm --clean
+# çıktı: dist/TurkiyeMCP.exe
+```
+
+### EXE komut satırı seçenekleri
+
+```bash
+TurkiyeMCP.exe              # GUI ile başlat
+TurkiyeMCP.exe --no-gui     # Sadece sunucu
+TurkiyeMCP.exe --browser    # Tarayıcıda aç
+TurkiyeMCP.exe --port 9090  # Farklı port
+TurkiyeMCP.exe --debug      # Konsol penceresini göster
+```
 
 ---
 
 ## 📜 Lisans
 
-MIT
+MIT — bkz. proje sahibinin koşulları.
 
-## 🙏 Kaynaklar
+## 🙏 Teşekkürler
 
 - [yargi-mcp](https://github.com/saidsurucu/yargi-mcp) — Türk hukuk veritabanları
 - [mevzuat-mcp](https://github.com/saidsurucu/mevzuat-mcp) — Mevzuat Bilgi Sistemi
 - [ihale-mcp](https://github.com/saidsurucu/ihale-mcp) — Kamu ihale arama
 - [borsa-mcp](https://github.com/saidsurucu/borsa-mcp) — Borsa verileri
 - [musavir-mcp](https://github.com/ayzekhdawy/musavir-mcp) — Mali müşavir araçları
+
+---
+
+<div align="center">
+<sub>⚠️ Yanıtlar yapay zekâ tarafından üretilir; hukuki/mali nihai kararlar için resmi kaynaklardan teyit ediniz.</sub>
+</div>
