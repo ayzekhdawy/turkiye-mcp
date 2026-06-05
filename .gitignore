@@ -17,4 +17,6 @@ logs/
 .pytest_cache/
 *.baktest_document.pdf
 test_document.pdf
-test_document.pdf
+# Yerel çalışma alanı verisi (klasör/oturum/dosya)
+_devdata/
+workspace_data/

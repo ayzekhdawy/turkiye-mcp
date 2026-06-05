@@ -144,6 +144,8 @@ hidden_imports = [
     # UYAP EYP/UDF
     "uyap_module",
     "uyap_module.parser",
+    # Çalışma alanı kalıcılığı (klasör/oturum/dosya)
+    "workspace",
     # Keyring
     "keyring",
     "keyring.backends",

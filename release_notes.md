@@ -1,41 +1,40 @@
-## 🇹🇷 Türkiye MCP Server v1.3.0
+## 🇹🇷 Türkiye MCP Server v1.4.0
 
-### 🎨 Premium UI Entegrasyonu
-- **Yeni Arayüz**: Tamamen yeniden tasarlanmış premium dark tema arayüzü
-  - Bricolage Grotesque + Be Vietnam Pro fontları
-  - Özel titlebar (bayrak ikonu ile)
-  - Sidebar: marka, sohbet listesi, modül durumu
-  - Hero/welcome ekranı ile animasyonlu kartlar
-  - Modern composer: dosya ekleme butonu + gönder butonu
-  - Ayarlar modal overlay (sağlayıcı/model/API anahtarı)
-  - Model chip: üst barda aktif sağlayıcıyı gösterir
-  - Sunucu durumu yeşil/kırmızı nokta ile gösterilir
+### 🆕 Çalışma Alanı (Klasör · Oturum · Dosya Kalıcılığı)
+- **Klasör oluşturma** ve sohbetleri klasörlere **sürükle-bırak** ile yerleştirme
+- Oturumlar artık **sunucuda** saklanıyor → uygulama kapanıp açılsa bile **kaldığınız yerden devam**
+- Yüklediğiniz belgeler ilgili klasöre kaydedilir
+- Veri dizini: `%LOCALAPPDATA%\TurkiyeMCP\workspace` (veya `TURKIYE_MCP_DATA_DIR`)
 
-### ✨ Önceki Sürümden Devralan Özellikler
-- **Server Persistence**: EXE kapatıldığında server arka planda devam eder
-- **Kopyala & Word'e Aktar**: Her mesajda kopyala ve Word'e aktar butonları
-- **Markdown Render**: Tablolar, başlıklar, listeler düzgün gösterilir
-- **SYSTEM_PROMPT**: Tool sonuçları artık açıklamalı, kaynaklı ve markdown formatında
-- **Tray Menüsü**: Göster, Tarayıcıda Aç, Tamamen Kapat seçenekleri
-- **Dosya Yükleme**: PDF ve EYP/UDF drag-and-drop desteği
+### ☁️ Ollama Cloud + Dinamik Modeller
+- Yeni **Ollama Cloud** sağlayıcısı (ollama.com API anahtarı ile)
+- Yerel Ollama seçildiğinde makinenizdeki **gerçek modeller otomatik listelenir** (cloud-proxy modelleri dahil: `gpt-oss:120b-cloud`, `qwen3-coder:480b-cloud` vb.)
+- **gpt-oss boş yanıt sorunu düzeltildi**: reasoning modelleri tüm token bütçesini gizli düşünceye harcayıp boş yanıt döndürüyordu → `reasoning_effort: "low"` + `reasoning` alanına fallback ile çözüldü
+
+### 📄 Belge → Soru → Emsal
+- Yüklenen PDF/UYAP/TXT belge sohbete **ek (chip)** olarak iliştirilir; esas/karar numaraları otomatik çıkarılır
+- Belge hakkında soru sorduğunuzda metni bağlam olarak modele iletilir
+- **⚖ Emsal** butonu ile belgeye dair emsal kararları ve içtihatlar otomatik aranır (`search_emsal`)
+- Çok turlu süreklilik: önceki mesajlar bağlamda taşınır
+
+### 🔑 Kararlı API Yönetimi
+- **Sağlayıcı başına ayrı API anahtarı** hatırlanır (geçiş yapınca kaybolmaz)
+- **⚡ Bağlantıyı Test Et** butonu — anahtar/model doğrulaması
+- Sağlayıcıya göre timeout (yerel Ollama için 300s)
 
 ### 🔧 Düzeltmeler
-- EXE çalışma sorunu düzeltildi (console=True + hide_console)
-- Timeout 30s → 120s (modüllerin yüklenmesi uzun sürebiliyor)
-- FileAndConsoleHandler ile log yazımı düzeltildi
-- Magika model dosyaları bundle'a eklendi
-- pywebview API uyumluluk düzeltmesi
+- **Markdown render düzeltildi** — eski sürümde bozuk regex'ler yüzünden tablolar/başlıklar görünmüyordu
+- Hata mesajları anlamlı hale getirildi (boş "Beklenmeyen hata" kaldırıldı)
+- Toast bildirimleri eklendi
 
 ### 📥 İndirme
-- **TurkiyeMCP.exe** — Windows 10/11 (64-bit)
-- Çift tıkla ile çalıştır, ek kurulum gerekmez
+- **TurkiyeMCP.exe** — Windows 10/11 (64-bit), çift tıkla çalıştır, ek kurulum gerekmez
 
 ### 🚀 Kullanım
-1. `TurkiyeMCP.exe` dosyasını indirin
-2. Çift tıklayarak çalıştırın
-3. İlk açılışta modüller yüklenir (~20-30 saniye)
-4. Dashboard otomatik olarak açılır
-5. Kapatıp tekrar açarsanız mevcut server'a bağlanır
+1. `TurkiyeMCP.exe` dosyasını indirip çift tıklayın (ilk açılışta modüller ~20-30 sn yüklenir)
+2. Sağ üstten **Ayarlar** → sağlayıcı ve model seçin (Ollama için yerel modelleriniz otomatik gelir)
+3. **Bağlantıyı Test Et** ile doğrulayın, soru sorun veya belge yükleyin
+4. Sol panelden **klasör** oluşturup sohbetlerinizi düzenleyin
 
 ### ⌨️ Komut Satırı
 - `TurkiyeMCP.exe` — GUI ile başlat

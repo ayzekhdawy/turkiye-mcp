@@ -28,6 +28,13 @@ from starlette.middleware.cors import CORSMiddleware
 
 from fastmcp import FastMCP
 
+try:
+    import workspace  # Sunucu taraflı klasör/oturum/dosya kalıcılığı
+    WORKSPACE_AVAILABLE = True
+except Exception as _ws_err:  # pragma: no cover
+    workspace = None
+    WORKSPACE_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -683,9 +690,65 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .chats::-webkit-scrollbar{width:4px}
 .chats::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
 
+/* ---- workspace tree ---- */
+.sb-actions{display:flex;gap:8px}
+.sb-actions .new-chat{flex:1}
+.new-folder{width:42px;flex:0 0 auto;border-radius:11px;border:1px solid var(--border-strong);background:var(--s2);color:var(--dim);display:grid;place-items:center;cursor:pointer;transition:.15s}
+.new-folder:hover{background:var(--s3);color:var(--text)}
+.new-folder svg{width:17px;height:17px}
+.tree-wrap{display:flex;flex-direction:column;min-height:0;flex:1 1 auto}
+.tree{display:flex;flex-direction:column;gap:1px;overflow-y:auto;flex:1 1 auto}
+.tree::-webkit-scrollbar{width:4px}
+.tree::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
+.folder-row{display:flex;align-items:center;gap:7px;padding:8px 8px;border-radius:8px;color:var(--dim);cursor:pointer;font-size:12.5px;font-weight:600;user-select:none}
+.folder-row:hover{background:var(--s2);color:var(--text)}
+.folder-row.drop-target{background:var(--accent-soft);outline:1px dashed var(--accent)}
+.folder-row .caret{width:12px;transition:transform .15s;flex:0 0 auto}
+.folder-row.collapsed .caret{transform:rotate(-90deg)}
+.folder-row .fname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.folder-row .fcount{font-size:10px;color:var(--faint)}
+.folder-row .fmenu{opacity:0;cursor:pointer;font-size:13px;padding:0 2px}
+.folder-row:hover .fmenu{opacity:.7}
+.folder-row .fmenu:hover{opacity:1;color:var(--accent)}
+.session-row{display:flex;align-items:center;gap:8px;padding:7px 9px 7px 22px;border-radius:8px;color:var(--dim);cursor:pointer;font-size:12.5px;transition:.12s}
+.session-row:hover{background:var(--s2);color:var(--text)}
+.session-row.active{background:var(--s2);color:var(--text);box-shadow:inset 2px 0 0 var(--accent)}
+.session-row .dot{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:0 0 auto}
+.session-row .stitle{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-row .sclip{font-size:10px;opacity:.6}
+.session-row .del-btn{opacity:0;cursor:pointer;font-size:12px;color:var(--faint)}
+.session-row:hover .del-btn{opacity:.7}
+.session-row:hover .del-btn:hover{opacity:1;color:var(--accent)}
+.tree-empty{text-align:center;color:var(--faint);font-size:12px;padding:1rem}
+
+/* ---- attachment chips ---- */
+.attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.att-chip{display:flex;align-items:center;gap:7px;padding:6px 10px;border-radius:10px;background:var(--s2);border:1px solid var(--border-strong);font-size:12px;color:var(--text);max-width:280px}
+.att-chip .ai{color:var(--accent);flex:0 0 auto;display:grid;place-items:center}
+.att-chip .ai svg{width:14px;height:14px}
+.att-chip .aname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-chip .aref{font-size:10px;color:var(--faint);flex:0 0 auto}
+.att-chip .emsal{cursor:pointer;color:var(--accent-hi);font-size:11px;font-weight:600;border:none;background:transparent;padding:0 2px;flex:0 0 auto}
+.att-chip .emsal:hover{text-decoration:underline}
+.att-chip .ax{cursor:pointer;color:var(--faint);flex:0 0 auto}
+.att-chip .ax:hover{color:var(--accent)}
+
+/* ---- settings test ---- */
+.test-row{display:flex;align-items:center;gap:10px;margin-bottom:15px}
+.test-row .btn-ghost{padding:8px 14px;font-size:12.5px}
+.test-status{font-size:12px;font-weight:500}
+.test-status.ok{color:var(--green)}
+.test-status.err{color:var(--accent)}
+.test-status.pending{color:var(--amber)}
+
+/* ---- toast ---- */
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--s3);border:1px solid var(--border-strong);color:var(--text);padding:11px 18px;border-radius:11px;font-size:13px;z-index:200;opacity:0;pointer-events:none;transition:.25s;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{border-color:var(--accent)}
+
 @media(max-width:768px){
   .sidebar{width:60px;flex:0 0 60px;padding:12px 8px}
-  .brand-name,.brand-sub,.sb-label,.chat-item span,.new-chat span,.mod-left span,.mod-count{display:none}
+  .brand-name,.brand-sub,.sb-label,.new-chat span,.mod-left span,.mod-count,.folder-row .fname,.folder-row .fcount,.session-row .stitle{display:none}
   .new-chat{padding:11px;border-radius:11px}
 }
 </style>
@@ -713,14 +776,19 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
       </div>
     </div>
 
-    <button class="new-chat" onclick="newChat()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      Yeni Sohbet
-    </button>
+    <div class="sb-actions">
+      <button class="new-chat" onclick="newChat()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <span>Yeni Sohbet</span>
+      </button>
+      <button class="new-folder" onclick="createFolder()" title="Yeni Klasör">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
+      </button>
+    </div>
 
-    <div>
-      <div class="sb-label">Son Sohbetler</div>
-      <div class="chats" id="chat-list"></div>
+    <div class="tree-wrap">
+      <div class="sb-label">Çalışma Alanı</div>
+      <div class="tree" id="tree"></div>
     </div>
 
     <div class="modules">
@@ -776,11 +844,12 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 
     <!-- file drop overlay -->
     <div class="file-drop-overlay" id="file-drop-overlay">📄 Dosya yüklemek için bırakın</div>
-    <input type="file" id="file-input" accept=".pdf,.eyp,.udf" style="display:none" onchange="handleFileUpload(this)">
+    <input type="file" id="file-input" accept=".pdf,.eyp,.udf,.txt,.md" style="display:none" onchange="handleFileUpload(this)">
 
     <!-- composer -->
     <div class="composer">
       <div style="width:100%;max-width:760px">
+        <div class="attachments" id="attachments"></div>
         <div class="composer-inner">
           <button class="attach" title="Dosya ekle" onclick="document.getElementById('file-input').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
           <textarea id="chat-input" rows="1" placeholder="Soru sorun veya dosya yükleyin..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}" oninput="autoResize(this)"></textarea>
@@ -804,6 +873,7 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
         <option value="openai">OpenAI</option>
         <option value="anthropic">Anthropic</option>
         <option value="gemini">Google Gemini</option>
+        <option value="ollama_cloud">Ollama Cloud</option>
         <option value="ollama">Ollama (Yerel)</option>
       </select>
     </div>
@@ -811,13 +881,17 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
       <label>Model</label>
       <select id="llm-model"></select>
     </div>
-    <div class="field">
-      <label>API Anahtarı</label>
+    <div class="field" id="api-key-field">
+      <label>API Anahtarı <span id="api-key-hint" style="font-weight:400;color:var(--faint)"></span></label>
       <input type="password" id="llm-api-key" placeholder="sk-..." />
+    </div>
+    <div class="test-row">
+      <button class="btn-ghost" type="button" onclick="testConnection()" id="test-btn">⚡ Bağlantıyı Test Et</button>
+      <span id="test-status" class="test-status"></span>
     </div>
     <div class="note">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      Anahtarınız yalnızca bu cihazda saklanır, hiçbir sunucuya gönderilmez.
+      Anahtarınız yalnızca bu cihazda saklanır. Her sağlayıcı için ayrı anahtar hatırlanır. Ollama Cloud için <b>ollama.com</b> API anahtarınızı girin.
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeSettings()">Vazgeç</button>
@@ -833,15 +907,70 @@ const PROVIDERS = {
   openai: { name: "OpenAI", needs_key: true, models: ["gpt-4o-mini","gpt-4o","gpt-4-turbo"], default_model: "gpt-4o-mini" },
   anthropic: { name: "Anthropic", needs_key: true, models: ["claude-sonnet-4-20250514","claude-haiku-4-20250414"], default_model: "claude-haiku-4-20250414" },
   gemini: { name: "Google Gemini", needs_key: true, models: ["gemini-2.0-flash","gemini-1.5-pro"], default_model: "gemini-2.0-flash" },
-  ollama: { name: "Ollama (Yerel)", needs_key: false, models: ["llama3.2","llama3.1","mistral","qwen2.5","gemma2"], default_model: "llama3.2" },
+  ollama_cloud: { name: "Ollama Cloud", needs_key: true, models: ["gpt-oss:120b","gpt-oss:20b","deepseek-v3.1:671b","qwen3-coder:480b","glm-4.6","kimi-k2:1t","qwen3:235b"], default_model: "gpt-oss:120b" },
+  ollama: { name: "Ollama (Yerel)", needs_key: false, models: ["llama3.2","llama3.1","mistral","qwen2.5","gemma2","gpt-oss:20b"], default_model: "llama3.2" },
 };
 
-let chats = JSON.parse(localStorage.getItem('turkiye_mcp_chats') || '[]');
+// Çalışma alanı durumu (sunucu = kaynak; localStorage = yedek)
+let folders = [];               // [{id,name,created}]
+let chats = JSON.parse(localStorage.getItem('turkiye_mcp_chats') || '[]'); // tam oturumlar (cache)
 let activeChatId = localStorage.getItem('turkiye_mcp_active_chat') || null;
+let collapsed = JSON.parse(localStorage.getItem('turkiye_mcp_collapsed') || '{}');
+let serverOk = false;           // workspace API erişilebilir mi
+let draggingSessionId = null;
+
+// LLM yapılandırması — sağlayıcı başına ayrı anahtar
 let currentProvider = localStorage.getItem('llm-provider') || 'openrouter';
 let currentModel = localStorage.getItem('llm-model') || '';
-let savedApiKey = localStorage.getItem('llm-api-key') || '';
+let apiKeys = {};
+try { apiKeys = JSON.parse(localStorage.getItem('llm-keys') || '{}'); } catch(e) { apiKeys = {}; }
+// Geriye uyumluluk: eski tek anahtar
+if (localStorage.getItem('llm-api-key') && !apiKeys[currentProvider]) {
+  apiKeys[currentProvider] = localStorage.getItem('llm-api-key');
+}
+function keyFor(p){ return apiKeys[p] || ''; }
 let isSending = false;
+let saveTimer = null;
+
+// ===== Toast =====
+function toast(msg, isErr) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = 'toast' + (isErr ? ' err' : ''); }, 2600);
+}
+
+// ===== Server sync =====
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok && res.status >= 500) throw new Error('server ' + res.status);
+  return res;
+}
+
+async function bootstrapWorkspace() {
+  try {
+    const res = await fetch('/api/workspace', {signal: AbortSignal.timeout(4000)});
+    const data = await res.json();
+    if (data.error) { serverOk = false; return; }
+    serverOk = true;
+    folders = data.folders || [];
+    // Sunucu oturum metalarını yerel cache ile birleştir
+    const metas = data.sessions || [];
+    const byId = {};
+    chats.forEach(c => byId[c.id] = c);
+    // Sunucudaki her oturum için meta'yı uygula (mesajlar tembel yüklenir)
+    metas.forEach(m => {
+      const ex = byId[m.id];
+      if (ex) { ex.title = m.title; ex.folderId = m.folderId; ex.updated = m.updated; ex._meta = true; }
+      else { byId[m.id] = { id: m.id, title: m.title, folderId: m.folderId, updated: m.updated, messages: null, attachments: [], _meta: true }; }
+    });
+    chats = Object.values(byId).sort((a,b) => (b.updated||0) - (a.updated||0));
+  } catch(e) {
+    serverOk = false; // localStorage moduna düş
+  }
+}
 
 // ===== Server Status =====
 async function checkServerStatus() {
@@ -860,8 +989,8 @@ async function checkServerStatus() {
 checkServerStatus();
 setInterval(checkServerStatus, 30000);
 
-// ===== Chat Management =====
-function generateId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
+// ===== Chat & Workspace Management =====
+function generateId() { return 's_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
 
 function generateTitle(msg) {
   const lower = msg.toLowerCase();
@@ -881,43 +1010,215 @@ function generateTitle(msg) {
 
 function getActiveChat() { return chats.find(c => c.id === activeChatId); }
 
-function newChat() {
-  const chat = { id: generateId(), title: 'Yeni Sohbet', messages: [], created: Date.now() };
+function newChat(folderId) {
+  const chat = { id: generateId(), title: 'Yeni Sohbet', messages: [], attachments: [], folderId: folderId || null, created: Date.now(), updated: Date.now() };
   chats.unshift(chat);
   activeChatId = chat.id;
   saveChats();
-  renderChatList();
+  renderTree();
   renderChat();
+  document.getElementById('chat-input').focus();
 }
 
 function saveChats() {
-  localStorage.setItem('turkiye_mcp_chats', JSON.stringify(chats));
+  // Yalnızca yüklenmiş (mesajları olan) oturumları yerel cache'e yaz
+  const cache = chats.filter(c => Array.isArray(c.messages));
+  try { localStorage.setItem('turkiye_mcp_chats', JSON.stringify(cache)); } catch(e) {}
   localStorage.setItem('turkiye_mcp_active_chat', activeChatId || '');
 }
 
-function renderChatList() {
-  const list = document.getElementById('chat-list');
-  if (!list) return;
-  if (chats.length === 0) {
-    list.innerHTML = '<div style="text-align:center;color:var(--faint);font-size:12px;padding:1rem">Henüz sohbet yok</div>';
-    return;
-  }
-  list.innerHTML = chats.map(c =>
-    '<div class="chat-item' + (c.id === activeChatId ? ' active' : '') + '" onclick="selectChat(\'' + c.id + '\')">' +
-    '<span class="dot"></span><span>' + escapeHtml(c.title) + '</span>' +
-    '<span class="del-btn" onclick="event.stopPropagation();deleteChat(\'' + c.id + '\')">×</span></div>'
-  ).join('');
+// Sunucuya kalıcı kaydet (debounce)
+function persistSession(chat, immediate) {
+  if (!chat) return;
+  saveChats();
+  if (!serverOk) return;
+  const doSave = () => {
+    fetch('/api/workspace/session', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        id: chat.id, title: chat.title, folderId: chat.folderId || null,
+        messages: chat.messages || [], attachments: chat.attachments || [],
+        created: chat.created, updated: Date.now()
+      })
+    }).catch(()=>{});
+  };
+  clearTimeout(saveTimer);
+  if (immediate) doSave(); else saveTimer = setTimeout(doSave, 700);
 }
 
-function selectChat(id) { activeChatId = id; saveChats(); renderChatList(); renderChat(); }
-function deleteChat(id) { chats = chats.filter(c => c.id !== id); if (activeChatId === id) activeChatId = null; saveChats(); renderChatList(); renderChat(); }
+// ----- Klasör işlemleri -----
+async function createFolder() {
+  const name = prompt('Klasör adı:', 'Yeni Klasör');
+  if (!name) return;
+  if (serverOk) {
+    try {
+      const r = await (await fetch('/api/workspace/folder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',name})})).json();
+      if (r.folder) folders.push(r.folder);
+    } catch(e) { toast('Klasör oluşturulamadı', true); return; }
+  } else {
+    folders.push({ id: 'f_' + Date.now().toString(36), name, created: Date.now() });
+  }
+  renderTree();
+}
+
+async function renameFolder(id) {
+  const f = folders.find(x => x.id === id); if (!f) return;
+  const name = prompt('Klasör adı:', f.name);
+  if (!name) return;
+  f.name = name;
+  if (serverOk) fetch('/api/workspace/folder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'rename',id,name})}).catch(()=>{});
+  renderTree();
+}
+
+async function deleteFolder(id) {
+  if (!confirm('Klasör silinsin mi? İçindeki sohbetler "Genel" altına taşınır.')) return;
+  folders = folders.filter(f => f.id !== id);
+  chats.forEach(c => { if (c.folderId === id) c.folderId = null; });
+  if (serverOk) fetch('/api/workspace/folder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id})}).catch(()=>{});
+  renderTree();
+}
+
+function toggleFolder(id) {
+  collapsed[id] = !collapsed[id];
+  localStorage.setItem('turkiye_mcp_collapsed', JSON.stringify(collapsed));
+  renderTree();
+}
+
+function moveSession(sessionId, folderId) {
+  const c = chats.find(x => x.id === sessionId); if (!c) return;
+  c.folderId = folderId;
+  if (serverOk) fetch('/api/workspace/session/delete', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:sessionId,action:'move',folderId})}).catch(()=>{});
+  persistSession(c, true);
+  renderTree();
+}
+
+// ----- Ağaç çizimi (data-attribute + delegated listener) -----
+function sessionRowHtml(c) {
+  const clip = (c.attachments && c.attachments.length) ? '<span class="sclip">📎</span>' : '';
+  const act = (c.id === activeChatId ? ' active' : '');
+  return '<div class="session-row' + act + '" draggable="true" data-row="session" data-id="' + c.id + '">' +
+    '<span class="dot"></span>' + clip +
+    '<span class="stitle">' + escapeHtml(c.title || 'Sohbet') + '</span>' +
+    '<span class="del-btn" data-act="del-session" data-id="' + c.id + '">×</span></div>';
+}
+
+function folderRowHtml(fid, name, count, isCol, isGeneral) {
+  const menu = isGeneral ? '' : (
+    '<span class="fmenu" title="Yeni sohbet" data-act="folder-new" data-fid="' + fid + '">＋</span>' +
+    '<span class="fmenu" title="Yeniden adlandır" data-act="folder-rename" data-fid="' + fid + '">✎</span>' +
+    '<span class="fmenu" title="Sil" data-act="folder-del" data-fid="' + fid + '">🗑</span>');
+  return '<div class="folder-row' + (isCol ? ' collapsed' : '') + '" data-row="folder" data-fid="' + fid + '">' +
+    '<svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>' +
+    '<span class="fname">' + escapeHtml(name) + '</span>' +
+    '<span class="fcount">' + count + '</span>' + menu + '</div>';
+}
+
+function renderTree() {
+  const tree = document.getElementById('tree');
+  if (!tree) return;
+  let html = '';
+
+  folders.forEach(f => {
+    const fSessions = chats.filter(c => c.folderId === f.id);
+    const isCol = !!collapsed[f.id];
+    html += folderRowHtml(f.id, f.name, fSessions.length, isCol, false);
+    if (!isCol) html += fSessions.map(sessionRowHtml).join('');
+  });
+
+  const ungrouped = chats.filter(c => !c.folderId);
+  const genCol = !!collapsed['__general__'];
+  if (folders.length > 0 || ungrouped.length > 0) {
+    html += folderRowHtml('__general__', 'Genel', ungrouped.length, genCol, true);
+    if (!genCol) html += ungrouped.map(sessionRowHtml).join('');
+  }
+
+  if (chats.length === 0 && folders.length === 0) {
+    html = '<div class="tree-empty">Henüz sohbet yok.<br>Bir soru sorun veya klasör oluşturun.</div>';
+  }
+  tree.innerHTML = html;
+}
+
+// Ağaç olaylarını tek bir delegasyonla bağla (bir kez)
+function setupTree() {
+  const tree = document.getElementById('tree');
+  if (!tree || tree._wired) return;
+  tree._wired = true;
+
+  tree.addEventListener('click', (e) => {
+    const actEl = e.target.closest('[data-act]');
+    if (actEl) {
+      e.stopPropagation();
+      const act = actEl.getAttribute('data-act');
+      const fid = actEl.getAttribute('data-fid');
+      const id = actEl.getAttribute('data-id');
+      if (act === 'del-session') deleteChat(id);
+      else if (act === 'folder-new') newChat(fid);
+      else if (act === 'folder-rename') renameFolder(fid);
+      else if (act === 'folder-del') deleteFolder(fid);
+      return;
+    }
+    const folderRow = e.target.closest('.folder-row');
+    if (folderRow) { toggleFolder(folderRow.getAttribute('data-fid')); return; }
+    const sessRow = e.target.closest('.session-row');
+    if (sessRow) selectChat(sessRow.getAttribute('data-id'));
+  });
+
+  tree.addEventListener('dragstart', (e) => {
+    const row = e.target.closest('.session-row');
+    if (row) draggingSessionId = row.getAttribute('data-id');
+  });
+  tree.addEventListener('dragover', (e) => {
+    const fr = e.target.closest('.folder-row');
+    if (fr) { e.preventDefault(); fr.classList.add('drop-target'); }
+  });
+  tree.addEventListener('dragleave', (e) => {
+    const fr = e.target.closest('.folder-row');
+    if (fr) fr.classList.remove('drop-target');
+  });
+  tree.addEventListener('drop', (e) => {
+    const fr = e.target.closest('.folder-row');
+    if (fr && draggingSessionId) {
+      e.preventDefault();
+      fr.classList.remove('drop-target');
+      const fid = fr.getAttribute('data-fid');
+      moveSession(draggingSessionId, fid === '__general__' ? null : fid);
+      draggingSessionId = null;
+    }
+  });
+}
+
+async function selectChat(id) {
+  activeChatId = id;
+  const chat = getActiveChat();
+  // Mesajlar tembel yüklü değilse sunucudan getir
+  if (chat && chat.messages === null && serverOk) {
+    try {
+      const full = await (await fetch('/api/workspace/session?id=' + encodeURIComponent(id))).json();
+      if (full && !full.error) { chat.messages = full.messages || []; chat.attachments = full.attachments || []; chat.created = full.created; }
+      else chat.messages = [];
+    } catch(e) { chat.messages = []; }
+  }
+  saveChats();
+  renderTree();
+  renderChat();
+}
+
+function deleteChat(id) {
+  chats = chats.filter(c => c.id !== id);
+  if (activeChatId === id) activeChatId = null;
+  if (serverOk) fetch('/api/workspace/session/delete', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:'delete'})}).catch(()=>{});
+  saveChats();
+  renderTree();
+  renderChat();
+}
 
 function renderChat() {
   const area = document.getElementById('chat-area');
   const welcome = document.getElementById('welcome-screen');
   const chat = getActiveChat();
+  renderAttachments();
 
-  if (!chat || chat.messages.length === 0) {
+  if (!chat || !chat.messages || chat.messages.length === 0) {
     welcome.style.display = 'flex';
     area.querySelectorAll('.msg').forEach(el => el.remove());
     return;
@@ -932,7 +1233,7 @@ function renderChat() {
     if (m.role === 'assistant') {
       div.innerHTML = '<div class="msg-bubble"><div class="msg-content">' + renderMarkdown(m.text) + '</div>' +
         (m.sources ? renderSources(m.sources) : '') +
-        '<div class="msg-actions"><button onclick="copyMessage(this)" title="Kopyala">📋</button><button onclick="exportWord(this)" title="Word\'e Aktar">📄</button></div></div>';
+        '<div class="msg-actions"><button onclick="copyMessage(this)" title="Kopyala">📋</button><button onclick="exportWord(this)" title="Word olarak indir">📄</button></div></div>';
     } else {
       div.innerHTML = '<div class="msg-bubble">' + escapeHtml(m.text) + (m.sources ? renderSources(m.sources) : '') + '</div>';
     }
@@ -941,43 +1242,86 @@ function renderChat() {
   area.scrollTop = area.scrollHeight;
 }
 
+// ----- Ekli belgeler (chips) -----
+function renderAttachments() {
+  const box = document.getElementById('attachments');
+  if (!box) return;
+  const chat = getActiveChat();
+  const atts = (chat && chat.attachments) || [];
+  if (!atts.length) { box.innerHTML = ''; return; }
+  box.innerHTML = atts.map((a, i) =>
+    '<div class="att-chip">' +
+      '<span class="ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>' +
+      '<span class="aname">' + escapeHtml(a.name) + '</span>' +
+      (a.refCount ? '<span class="aref">' + a.refCount + ' ref</span>' : '') +
+      '<button class="emsal" title="Bu belge için emsal kararları ara" onclick="searchEmsal(' + i + ')">⚖ Emsal</button>' +
+      '<span class="ax" title="Kaldır" onclick="removeAttachment(' + i + ')">×</span>' +
+    '</div>'
+  ).join('');
+}
+
+function removeAttachment(i) {
+  const chat = getActiveChat(); if (!chat || !chat.attachments) return;
+  chat.attachments.splice(i, 1);
+  persistSession(chat, true);
+  renderChat();
+}
+
+function searchEmsal(i) {
+  const chat = getActiveChat(); if (!chat || !chat.attachments || !chat.attachments[i]) return;
+  const a = chat.attachments[i];
+  const q = 'Bu belgedeki uyuşmazlık için emsal kararları ve içtihatları detaylıca getir: ' + (a.name || 'belge');
+  document.getElementById('chat-input').value = q;
+  sendMessage();
+}
+
+function buildDocumentContext() {
+  const chat = getActiveChat();
+  if (!chat || !chat.attachments || !chat.attachments.length) return '';
+  return chat.attachments.map(a =>
+    '### ' + a.name + (a.refs && a.refs.length ? ' (Referanslar: ' + a.refs.map(r=>r.value).join(', ') + ')' : '') + '\\n' + (a.text || '')
+  ).join('\\n\\n').substring(0, 14000);
+}
+
 function renderSources(sources) {
   if (!sources || sources.length === 0) return '';
   return '<div class="sources">' + sources.map(s => '<span class="source-tag">' + s + '</span>').join('') + '</div>';
 }
 
 function escapeHtml(text) {
-  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(text == null ? '' : text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ===== Markdown Render =====
+// NOT: Bu fonksiyon Python üçlü-tırnak string'i içinde olduğundan
+// tarayıcıya ulaşması gereken HER ters bölü ÇİFT yazılır (\\n, \\d, \\* ...).
 function renderMarkdown(text) {
   if (!text) return '';
   let html = escapeHtml(text);
   html = html.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>');
   html = html.replace(/\\*(.*?)\\*/g, '<em>$1</em>');
-  html = html.replace(/^### (.*?)(?:\n|$)/gm, '<h4>$1</h4>');
-  html = html.replace(/^## (.*?)(?:\n|$)/gm, '<h3>$1</h3>');
-  html = html.replace(/^# (.*?)(?:\n|$)/gm, '<h2>$1</h2>');
-  // Tables
+  html = html.replace(/^### (.*?)(?:\\n|$)/gm, '<h4>$1</h4>');
+  html = html.replace(/^## (.*?)(?:\\n|$)/gm, '<h3>$1</h3>');
+  html = html.replace(/^# (.*?)(?:\\n|$)/gm, '<h2>$1</h2>');
+  // Tablolar
   html = html.replace(/\\n\\|(.+)\\|\\n\\|[-| :]+\\|\\n((?:\\|.+\\|\\n?)+)/g, function(match, header, body) {
     const ths = header.split('|').map(s=>s.trim()).filter(Boolean).map(s=>'<th>'+s+'</th>').join('');
-    const rows = body.trim().split('\n').map(row=>{
+    const rows = body.trim().split('\\n').map(row=>{
       const tds = row.split('|').map(s=>s.trim()).filter(Boolean).map(s=>'<td>'+s+'</td>').join('');
       return '<tr>'+tds+'</tr>';
     }).join('');
     return '<table class="md-table"><thead><tr>'+ths+'</tr></thead><tbody>'+rows+'</tbody></table>';
   });
-  html = html.replace(/^- (.*?)(?:\n|$)/gm, '<li>$1</li>');
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-  html = html.replace(/^\d+\. (.*?)(?:\n|$)/gm, '<li>$1</li>');
+  html = html.replace(/^[-*] (.*?)(?:\\n|$)/gm, '<li>$1</li>');
+  html = html.replace(/((?:<li>.*<\\/li>\\n?)+)/g, '<ul>$1</ul>');
+  html = html.replace(/^\\d+\\. (.*?)(?:\\n|$)/gm, '<li>$1</li>');
   html = html.replace(/^---$/gm, '<hr>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\n/g, '<br>');
-  html = html.replace(/(<\/h[234]>)<br>/g, '$1');
-  html = html.replace(/(<\/table>)<br>/g, '$1');
-  html = html.replace(/(<\/ul>)<br>/g, '$1');
+  html = html.replace(/\\n/g, '<br>');
+  html = html.replace(/(<\\/h[234]>)<br>/g, '$1');
+  html = html.replace(/(<\\/table>)<br>/g, '$1');
+  html = html.replace(/(<\\/ul>)<br>/g, '$1');
   html = html.replace(/(<hr>)<br>/g, '$1');
   return html;
 }
@@ -1027,15 +1371,23 @@ async function sendMessage() {
   if (!activeChatId) newChat();
   let chat = getActiveChat();
   if (!chat) { newChat(); chat = getActiveChat(); }
+  if (!Array.isArray(chat.messages)) chat.messages = [];
+
+  // Geçmiş (yeni mesajdan önceki son 12)
+  const history = chat.messages
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .slice(-12)
+    .map(m => ({ role: m.role, text: m.text }));
 
   if (chat.messages.length === 0) {
     chat.title = generateTitle(msg);
-    renderChatList();
+    renderTree();
   }
 
   chat.messages.push({ role: 'user', text: msg });
+  chat.updated = Date.now();
   renderChat();
-  saveChats();
+  persistSession(chat, true);
 
   isSending = true;
   document.getElementById('send-btn').disabled = true;
@@ -1047,21 +1399,20 @@ async function sendMessage() {
   document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
 
   try {
-    const provider = document.getElementById('llm-provider').value;
-    const model = document.getElementById('llm-model').value;
-    const apiKey = savedApiKey || localStorage.getItem('llm-api-key') || '';
+    const provider = document.getElementById('llm-provider') ? document.getElementById('llm-provider').value : currentProvider;
+    const model = (document.getElementById('llm-model') && document.getElementById('llm-model').value) || currentModel;
+    const apiKey = keyFor(provider);
+    const documentContext = buildDocumentContext();
 
     const headers = {'Content-Type': 'application/json'};
-    if (apiKey && PROVIDERS[provider].needs_key) {
-      headers['X-API-Key'] = apiKey;
-      headers['X-LLM-Provider'] = provider;
-      headers['X-LLM-Model'] = model;
-    } else if (!PROVIDERS[provider].needs_key) {
-      headers['X-LLM-Provider'] = provider;
-      headers['X-LLM-Model'] = model;
-    }
+    headers['X-LLM-Provider'] = provider;
+    headers['X-LLM-Model'] = model;
+    if (apiKey && PROVIDERS[provider].needs_key) headers['X-API-Key'] = apiKey;
 
-    const res = await fetch('/api/chat', { method: 'POST', headers, body: JSON.stringify({message: msg, provider, api_key: apiKey, model}) });
+    const res = await fetch('/api/chat', { method: 'POST', headers, body: JSON.stringify({
+      message: msg, provider, api_key: apiKey, model,
+      history, document_context: documentContext
+    }) });
     const data = await res.json();
 
     const ti = document.getElementById('typing-indicator');
@@ -1069,6 +1420,7 @@ async function sendMessage() {
 
     if (data.error) {
       chat.messages.push({ role: 'system', text: 'Hata: ' + data.error });
+      if (data.needs_key) toast('API anahtarı gerekli — Ayarlar', true);
     } else {
       chat.messages.push({ role: 'assistant', text: data.response, sources: data.sources || [] });
     }
@@ -1080,39 +1432,60 @@ async function sendMessage() {
 
   isSending = false;
   document.getElementById('send-btn').disabled = false;
+  chat.updated = Date.now();
   renderChat();
-  saveChats();
+  persistSession(chat, true);
 }
 
 // ===== File Upload =====
-function handleFileUpload(input) {
+async function handleFileUpload(input) {
   const file = input.files[0];
+  input.value = '';
   if (!file) return;
+
+  if (!activeChatId) newChat();
+  let chat = getActiveChat();
+  if (!chat) { newChat(); chat = getActiveChat(); }
+  if (!Array.isArray(chat.messages)) chat.messages = [];
+  if (!Array.isArray(chat.attachments)) chat.attachments = [];
+
+  toast('📄 ' + file.name + ' yükleniyor…');
   const formData = new FormData();
   formData.append('file', file);
-  const isPDF = file.name.toLowerCase().endsWith('.pdf');
-  const endpoint = isPDF ? '/api/upload/pdf' : '/api/upload/uyap';
+  formData.append('folderId', chat.folderId || '_root');
 
-  fetch(endpoint, { method: 'POST', body: formData })
-    .then(res => res.json())
-    .then(data => {
-      if (!activeChatId) newChat();
-      const chat = getActiveChat();
-      if (data.error) {
-        chat.messages.push({ role: 'system', text: 'Dosya hatası: ' + data.error });
-      } else {
-        const text = isPDF ? (data.text || data.markdown || '').substring(0, 2000) : (data.markdown || '').substring(0, 2000);
-        chat.messages.push({ role: 'system', text: '📄 Dosya yüklendi: ' + file.name + '\\n' + text });
-        if (chat.messages.length === 1) { chat.title = file.name; renderChatList(); }
-      }
-      renderChat();
-      saveChats();
-    })
-    .catch(e => {
-      const chat = getActiveChat();
-      if (chat) { chat.messages.push({ role: 'system', text: 'Dosya yükleme hatası.' }); renderChat(); }
-    });
-  input.value = '';
+  // serverOk ise workspace'e (kalıcı), değilse eski uçlara düş
+  const isPDF = file.name.toLowerCase().endsWith('.pdf');
+  const endpoint = serverOk ? '/api/workspace/file' : (isPDF ? '/api/upload/pdf' : '/api/upload/uyap');
+
+  try {
+    const data = await (await fetch(endpoint, { method: 'POST', body: formData })).json();
+    if (data.error) {
+      chat.messages.push({ role: 'system', text: 'Dosya hatası: ' + data.error });
+      toast('Dosya hatası: ' + data.error, true);
+    } else {
+      const text = (data.text || data.markdown || '');
+      const refs = data.references || [];
+      // Eki sohbete iliştir (bağlam olarak kullanılır)
+      chat.attachments.push({
+        name: file.name, text: text, refs: refs, refCount: refs.length,
+        fileId: (data.file && data.file.id) || null
+      });
+      const refLine = refs.length ? ('\\nTespit edilen referanslar: ' + refs.map(r => r.value).join(', ')) : '';
+      chat.messages.push({ role: 'system', text: '📄 Belge eklendi: ' + file.name + refLine + '\\n\\nArtık bu belge hakkında soru sorabilir, "⚖ Emsal" ile emsal kararları aratabilirsiniz.' });
+      if (chat.title === 'Yeni Sohbet' || !chat.messages.filter(m=>m.role==='user').length) { chat.title = file.name.substring(0, 40); }
+      if (data.parse_error) toast('Not: ' + data.parse_error, true);
+      else toast('✓ Belge eklendi');
+    }
+    chat.updated = Date.now();
+    renderTree();
+    renderChat();
+    persistSession(chat, true);
+  } catch(e) {
+    chat.messages.push({ role: 'system', text: 'Dosya yükleme hatası.' });
+    toast('Dosya yükleme hatası', true);
+    renderChat();
+  }
 }
 
 // Drag & drop
@@ -1130,36 +1503,25 @@ mainArea.addEventListener('drop', e => {
 
 // ===== Settings =====
 function openSettings() { document.getElementById('overlay').classList.add('open'); loadConfig(); }
-function closeSettings() { document.getElementById('overlay').classList.remove('open'); }
+function closeSettings() { document.getElementById('overlay').classList.remove('open'); document.getElementById('test-status').textContent=''; }
 function loadConfig() {
   const prov = document.getElementById('llm-provider');
   prov.value = currentProvider;
   onProviderChange();
   if (currentModel) document.getElementById('llm-model').value = currentModel;
-  document.getElementById('llm-api-key').value = savedApiKey || '';
   updateModelChip();
 }
-async function saveConfig() {
-  currentProvider = document.getElementById('llm-provider').value;
-  currentModel = document.getElementById('llm-model').value;
-  savedApiKey = document.getElementById('llm-api-key').value;
-  localStorage.setItem('llm-provider', currentProvider);
-  localStorage.setItem('llm-model', currentModel);
-  localStorage.setItem('llm-api-key', savedApiKey);
 
-  // Save to keyring if local
-  const isLocal = document.getElementById('server-status')?.classList?.contains('off') === false;
-  if (isLocal) {
-    try {
-      await fetch('/api/chat/configure', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({provider: currentProvider, api_key: savedApiKey, model: currentModel})
-      });
-    } catch(e) {}
-  }
-  updateModelChip();
-  closeSettings();
+async function loadOllamaModels(selected) {
+  const modelSel = document.getElementById('llm-model');
+  try {
+    const data = await (await fetch('/api/ollama/models')).json();
+    if (data.ok && data.models && data.models.length) {
+      modelSel.innerHTML = data.models.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+      modelSel.value = data.models.includes(selected) ? selected : data.models[0];
+      currentModel = modelSel.value;
+    }
+  } catch(e) {}
 }
 
 function onProviderChange() {
@@ -1167,17 +1529,71 @@ function onProviderChange() {
   const modelSel = document.getElementById('llm-model');
   const config = PROVIDERS[prov];
   modelSel.innerHTML = config.models.map(m => '<option value="' + m + '">' + m + '</option>').join('');
-  if (!currentModel || !config.models.includes(currentModel)) {
-    currentModel = config.default_model;
+  let m = (prov === currentProvider && currentModel) ? currentModel : config.default_model;
+  if (!config.models.includes(m)) m = config.default_model;
+  modelSel.value = m;
+  // Yerel Ollama: canlı model listesini çek (cloud proxy modelleri dahil)
+  if (prov === 'ollama') loadOllamaModels(currentModel);
+  // Sağlayıcı başına anahtar
+  const keyInput = document.getElementById('llm-api-key');
+  const field = document.getElementById('api-key-field');
+  const hint = document.getElementById('api-key-hint');
+  keyInput.value = keyFor(prov);
+  if (config.needs_key) {
+    field.style.opacity = '1'; keyInput.disabled = false;
+    keyInput.placeholder = (prov === 'ollama_cloud') ? 'ollama.com API anahtarı' : 'sk-...';
+    hint.textContent = (prov === 'anthropic') ? '(sk-ant-…)' : '';
+  } else {
+    field.style.opacity = '.5'; keyInput.disabled = true; keyInput.value = '';
+    hint.textContent = '(gerekli değil — yerel)';
   }
-  modelSel.value = currentModel;
+  document.getElementById('test-status').textContent = '';
+}
+
+async function saveConfig() {
+  currentProvider = document.getElementById('llm-provider').value;
+  currentModel = document.getElementById('llm-model').value;
+  const key = document.getElementById('llm-api-key').value.trim();
+  if (PROVIDERS[currentProvider].needs_key) apiKeys[currentProvider] = key;
+  localStorage.setItem('llm-provider', currentProvider);
+  localStorage.setItem('llm-model', currentModel);
+  localStorage.setItem('llm-keys', JSON.stringify(apiKeys));
+  // keyring (yerel mod) — best effort
+  try {
+    await fetch('/api/chat/configure', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({provider: currentProvider, api_key: key, model: currentModel})
+    });
+  } catch(e) {}
+  updateModelChip();
+  closeSettings();
+  toast('Ayarlar kaydedildi');
+}
+
+async function testConnection() {
+  const provider = document.getElementById('llm-provider').value;
+  const model = document.getElementById('llm-model').value;
+  const key = document.getElementById('llm-api-key').value.trim();
+  const status = document.getElementById('test-status');
+  status.className = 'test-status pending';
+  status.textContent = 'Test ediliyor…';
+  try {
+    const data = await (await fetch('/api/chat/test', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({provider, model, api_key: key})
+    })).json();
+    if (data.ok) { status.className = 'test-status ok'; status.textContent = '✓ ' + (data.message || 'Bağlantı başarılı'); }
+    else { status.className = 'test-status err'; status.textContent = '✗ ' + (data.error || 'Başarısız'); }
+  } catch(e) {
+    status.className = 'test-status err'; status.textContent = '✗ Sunucuya ulaşılamadı';
+  }
 }
 
 function updateModelChip() {
   const chip = document.getElementById('model-chip');
   const chipText = document.getElementById('model-chip-text');
   const prov = PROVIDERS[currentProvider];
-  const hasKey = !prov.needs_key || savedApiKey;
+  const hasKey = !prov.needs_key || keyFor(currentProvider);
   chip.className = 'model-chip' + (hasKey ? '' : ' warn');
   chipText.textContent = hasKey ? (prov.name + ' · ' + (currentModel || prov.default_model)) : 'API anahtarı gerekli';
 }
@@ -1206,9 +1622,17 @@ async function loadModules() {
 loadModules();
 
 // ===== Init =====
-renderChatList();
-if (activeChatId) { selectChat(activeChatId); } else { renderChat(); }
-loadConfig();
+async function init() {
+  loadConfig();
+  setupTree();
+  await bootstrapWorkspace();   // sunucudan klasör + oturumları çek
+  renderTree();
+  // Kaldığı yerden devam: aktif oturum yoksa en son güncelleneni aç
+  let target = activeChatId && chats.find(c => c.id === activeChatId) ? activeChatId : (chats[0] && chats[0].id);
+  if (target) { await selectChat(target); }
+  else { renderChat(); }
+}
+init();
 </script>
 </body>
 </html>"""
@@ -1375,10 +1799,20 @@ LLM_PROVIDERS = {
         "default_model": "gemini-2.0-flash",
         "needs_key": True,
     },
+    "ollama_cloud": {
+        "name": "Ollama Cloud",
+        "url": "https://ollama.com/v1/chat/completions",
+        "models": [
+            "gpt-oss:120b", "gpt-oss:20b", "deepseek-v3.1:671b",
+            "qwen3-coder:480b", "glm-4.6", "kimi-k2:1t", "qwen3:235b",
+        ],
+        "default_model": "gpt-oss:120b",
+        "needs_key": True,
+    },
     "ollama": {
         "name": "Ollama (Yerel)",
         "url": "http://localhost:11434/v1/chat/completions",
-        "models": ["llama3.2", "llama3.1", "mistral", "qwen2.5", "gemma2"],
+        "models": ["llama3.2", "llama3.1", "mistral", "qwen2.5", "gemma2", "gpt-oss:20b"],
         "default_model": "llama3.2",
         "needs_key": False,
     },
@@ -1973,6 +2407,271 @@ async def upload_uyap_endpoint(request):
         return JSONResponse({"error": f"UYAP parse hatasi: {str(e)}"}, status_code=500)
 
 
+# ============================================================
+# WORKSPACE — Klasör / Oturum / Dosya kalıcılığı
+# ============================================================
+
+def _ws_guard():
+    """Workspace yoksa hata yanıtı döndürür, varsa None."""
+    if not WORKSPACE_AVAILABLE:
+        return JSONResponse({"error": "Workspace modülü yüklü değil."}, status_code=503)
+    return None
+
+
+async def workspace_snapshot_endpoint(request):
+    """Tüm klasör + oturum ağacını döndürür."""
+    g = _ws_guard()
+    if g:
+        return g
+    try:
+        return JSONResponse(workspace.snapshot())
+    except Exception as e:
+        return JSONResponse({"error": f"Workspace okuma hatası: {e}"}, status_code=500)
+
+
+async def workspace_folder_endpoint(request):
+    """Klasör oluştur / yeniden adlandır / sil.
+
+    Body: {"action": "create|rename|delete", "id": "...", "name": "..."}
+    """
+    g = _ws_guard()
+    if g:
+        return g
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = (body.get("action") or "create").lower()
+    try:
+        if action == "create":
+            folder = workspace.create_folder(body.get("name", "Yeni Klasör"))
+            return JSONResponse({"status": "ok", "folder": folder})
+        elif action == "rename":
+            ok = workspace.rename_folder(body.get("id", ""), body.get("name", ""))
+            return JSONResponse({"status": "ok" if ok else "notfound"})
+        elif action == "delete":
+            ok = workspace.delete_folder(body.get("id", ""), bool(body.get("deleteSessions")))
+            return JSONResponse({"status": "ok" if ok else "notfound"})
+        return JSONResponse({"error": "Geçersiz işlem."}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def workspace_session_get_endpoint(request):
+    """Tek bir oturumu (mesajlar dahil) getirir. ?id=..."""
+    g = _ws_guard()
+    if g:
+        return g
+    sid = request.query_params.get("id", "")
+    if not sid:
+        return JSONResponse({"error": "id gerekli."}, status_code=400)
+    session = workspace.get_session(sid)
+    if session is None:
+        return JSONResponse({"error": "Oturum bulunamadı."}, status_code=404)
+    return JSONResponse(session)
+
+
+async def workspace_session_save_endpoint(request):
+    """Oturumu kaydeder/günceller (upsert).
+
+    Body: tam oturum nesnesi {id?, title, folderId?, messages[], attachments[]}
+    """
+    g = _ws_guard()
+    if g:
+        return g
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Geçersiz istek."}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Geçersiz oturum verisi."}, status_code=400)
+    try:
+        session = workspace.save_session(body)
+        return JSONResponse({"status": "ok", "id": session["id"], "updated": session["updated"]})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def workspace_session_delete_endpoint(request):
+    """Oturum sil veya taşı. Body: {"id": "...", "action": "delete|move", "folderId": ...}"""
+    g = _ws_guard()
+    if g:
+        return g
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    sid = body.get("id", "")
+    action = (body.get("action") or "delete").lower()
+    if not sid:
+        return JSONResponse({"error": "id gerekli."}, status_code=400)
+    if action == "move":
+        ok = workspace.move_session(sid, body.get("folderId"))
+    else:
+        ok = workspace.delete_session(sid)
+    return JSONResponse({"status": "ok" if ok else "notfound"})
+
+
+async def workspace_file_upload_endpoint(request):
+    """Bir dosyayı klasöre yerleştirir; PDF/UYAP ise içeriğini de çözümler.
+
+    Multipart form: file, folderId
+    Yanıt: dosya meta + (varsa) çıkarılan metin + referanslar.
+    """
+    g = _ws_guard()
+    if g:
+        return g
+    try:
+        form = await request.form()
+    except Exception:
+        return JSONResponse({"error": "Geçersiz form verisi."}, status_code=400)
+
+    file = form.get("file")
+    folder_id = form.get("folderId") or "_root"
+    if not file:
+        return JSONResponse({"error": "Dosya bulunamadı."}, status_code=400)
+
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        return JSONResponse({"error": "Dosya boyutu 50MB'dan büyük olamaz."}, status_code=400)
+
+    filename = file.filename or "dosya"
+    lower = filename.lower()
+
+    extracted_text = ""
+    refs = []
+    parse_error = ""
+
+    try:
+        if lower.endswith(".pdf"):
+            text, _meta = _extract_text_from_pdf(content)
+            extracted_text = text or ""
+            refs = _extract_document_refs(extracted_text)
+        elif lower.endswith(".eyp") or lower.endswith(".udf"):
+            if 'uyap_parser' in globals() and uyap_parser is not None:
+                belge = uyap_parser.parse_eyp(content)
+                extracted_text = uyap_parser.to_markdown(belge)
+                refs = _extract_document_refs(extracted_text)
+            else:
+                parse_error = "UYAP modülü yüklü değil."
+        elif lower.endswith(".txt") or lower.endswith(".md"):
+            extracted_text = content.decode("utf-8", errors="replace")
+            refs = _extract_document_refs(extracted_text)
+    except Exception as e:
+        parse_error = f"Çözümleme hatası: {e}"
+
+    try:
+        info = workspace.store_file(folder_id, filename, content, meta={
+            "hasText": bool(extracted_text.strip()),
+            "refCount": len(refs),
+        })
+    except Exception as e:
+        return JSONResponse({"error": f"Dosya kaydedilemedi: {e}"}, status_code=500)
+
+    truncated = len(extracted_text) > 12000
+    return JSONResponse({
+        "status": "ok",
+        "file": info,
+        "text": extracted_text[:12000] + ("..." if truncated else ""),
+        "full_text_length": len(extracted_text),
+        "truncated": truncated,
+        "references": refs,
+        "parse_error": parse_error,
+    })
+
+
+async def workspace_files_list_endpoint(request):
+    """Klasördeki dosyaları listeler. ?folder=..."""
+    g = _ws_guard()
+    if g:
+        return g
+    folder_id = request.query_params.get("folder", "_root")
+    return JSONResponse({"files": workspace.list_files(folder_id)})
+
+
+async def workspace_file_delete_endpoint(request):
+    """Dosya sil. Body: {"folderId": "...", "name": "..."}"""
+    g = _ws_guard()
+    if g:
+        return g
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ok = workspace.delete_file(body.get("folderId", "_root"), body.get("name", ""))
+    return JSONResponse({"status": "ok" if ok else "notfound"})
+
+
+async def ollama_models_endpoint(request):
+    """Yerel Ollama'da yüklü modelleri listeler (cloud proxy modelleri dahil).
+
+    Kullanıcının makinesinde çalışan Ollama'dan canlı model listesi çeker.
+    """
+    base = request.query_params.get("base", "http://localhost:11434").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(base + "/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+            models = [m.get("name", "") for m in data.get("models", []) if m.get("name")]
+            return JSONResponse({"ok": True, "models": models})
+    except Exception as e:
+        return JSONResponse({"ok": False, "models": [], "error": str(e)}, status_code=200)
+
+
+async def test_llm_endpoint(request):
+    """LLM sağlayıcı bağlantısını/anahtarını hızlıca test eder.
+
+    Body/Header: provider, api_key, model. Kısa bir "ping" mesajı gönderir.
+    """
+    provider_id, api_key, model = _get_llm_config(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if body.get("provider"):
+        provider_id = body["provider"].lower()
+    if body.get("api_key"):
+        api_key = body["api_key"]
+    if body.get("model"):
+        model = body["model"]
+
+    if provider_id not in LLM_PROVIDERS:
+        return JSONResponse({"ok": False, "error": f"Bilinmeyen sağlayıcı: {provider_id}"}, status_code=400)
+    pc = LLM_PROVIDERS[provider_id]
+    if not model:
+        model = pc["default_model"]
+    if pc["needs_key"] and not api_key:
+        return JSONResponse({"ok": False, "error": "API anahtarı gerekli."}, status_code=200)
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            if pc.get("is_anthropic"):
+                resp = await client.post(pc["url"], headers={
+                    "x-api-key": api_key, "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                }, json={"model": model, "max_tokens": 8,
+                         "messages": [{"role": "user", "content": "ping"}]})
+            else:
+                headers = {"Content-Type": "application/json"}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                resp = await client.post(pc["url"], headers=headers, json={
+                    "model": model, "max_tokens": 8,
+                    "messages": [{"role": "user", "content": "ping"}]})
+            if resp.status_code < 300:
+                return JSONResponse({"ok": True, "provider": provider_id, "model": model,
+                                     "message": "Bağlantı başarılı."})
+            return JSONResponse({"ok": False, "status": resp.status_code,
+                                 "error": resp.text[:240]}, status_code=200)
+    except httpx.ConnectError:
+        msg = ("Yerel Ollama'ya bağlanılamadı (localhost:11434)." if provider_id == "ollama"
+               else "Sağlayıcıya bağlanılamadı.")
+        return JSONResponse({"ok": False, "error": msg}, status_code=200)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=200)
+
+
 async def chat_endpoint(request):
     """Chat endpoint — BYOK LLM + MCP araçları ile yanıt üretir.
 
@@ -2025,21 +2724,75 @@ async def chat_endpoint(request):
             return JSONResponse({"error": f"Gunluk limit asildi ({RATE_LIMIT_PER_IP} istek/IP). Yarin tekrar deneyin.", "remaining": 0}, status_code=429)
         ip_rate_limits[client_ip].append(now)
 
-    message = (body.get("message", "") or "").strip()[:500]
+    message = (body.get("message", "") or "").strip()[:2000]
     if not message:
         return JSONResponse({"error": "Mesaj bos olamaz."}, status_code=400)
 
-    # MCP araçlarını çağır
-    tool_context, called_tools = await _route_and_call(message)
+    # Yüklenen belge bağlamı (frontend'den ekli dosyaların metni)
+    document_context = (body.get("document_context") or "").strip()
+    if len(document_context) > 14000:
+        document_context = document_context[:14000] + "\n…(belge kısaltıldı)"
+
+    # Çok turlu süreklilik: önceki mesajlar
+    raw_history = body.get("history") or []
+    history = []
+    if isinstance(raw_history, list):
+        for h in raw_history[-12:]:  # son 12 mesaj
+            role = h.get("role")
+            text = (h.get("text") or h.get("content") or "").strip()
+            if role in ("user", "assistant") and text:
+                history.append({"role": role, "content": text[:2000]})
+
+    # MCP araçlarını çağır — kullanıcı mesajı + belge referansları üzerinden
+    search_basis = message
+    if document_context:
+        # Belgedeki referansları arama tabanına ekle (emsal/içtihat bulmak için)
+        try:
+            doc_refs = _extract_document_refs(document_context)
+            ref_terms = " ".join(r.get("search_term", "") for r in doc_refs[:5])
+            if ref_terms.strip():
+                search_basis = (message + " " + ref_terms)[:500]
+        except Exception:
+            pass
+
+    tool_context, called_tools = await _route_and_call(search_basis)
+
+    # Kullanıcı emsal/içtihat isterse veya belge ekliyse, emsal aramasını garanti et
+    wants_precedent = any(k in message.lower() for k in
+                          ["emsal", "içtihat", "ictihat", "benzer karar", "örnek karar", "ornek karar"])
+    if (wants_precedent or document_context) and "search_emsal" not in called_tools:
+        try:
+            emsal_term = (search_basis or message)[:60]
+            emsal_res = await _call_tool("search_emsal", keyword=emsal_term)
+            if emsal_res and "[Hata" not in emsal_res and "bulunamad" not in emsal_res.lower():
+                tool_context = (tool_context + "\n---\n" if tool_context else "") + f"### search_emsal\n{emsal_res}\n"
+                called_tools.add("search_emsal")
+        except Exception:
+            pass
+
+    # Belge bağlamı varsa sistem yönergesini güçlendir
+    doc_system = ""
+    if document_context:
+        doc_system = (
+            "\n\nKULLANICI BİR BELGE YÜKLEDİ. Aşağıdaki belge içeriğini esas alarak yanıt ver. "
+            "Belgedeki esas/karar numaralarını, tarafları ve konuyu özetle; ilgili EMSAL kararları "
+            "ve içtihatları MCP araç sonuçlarından detaylıca aktar.\n\n--- BELGE İÇERİĞİ ---\n"
+            + document_context + "\n--- BELGE SONU ---"
+        )
+
+    full_system = SYSTEM_PROMPT + doc_system
+    if tool_context:
+        full_system += f"\n\nMCP araç sonuçları:\n\n{tool_context}"
 
     # LLM'e gönder
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    if tool_context:
-        messages.append({"role": "system", "content": f"MCP araç sonuçları:\n\n{tool_context}"})
+    messages = [{"role": "system", "content": full_system}]
+    messages.extend(history)
     messages.append({"role": "user", "content": message})
 
+    # Yerel Ollama yavaş donanımda uzun sürebilir → daha uzun timeout
+    llm_timeout = 300 if provider_id == "ollama" else 120
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=llm_timeout) as client:
             if provider_config.get("is_anthropic"):
                 # Anthropic API formatı farklı
                 resp = await client.post(
@@ -2051,30 +2804,39 @@ async def chat_endpoint(request):
                     },
                     json={
                         "model": model,
-                        "max_tokens": 1024,
-                        "system": SYSTEM_PROMPT + ("\n\nMCP araç sonuçları:\n\n" + tool_context if tool_context else ""),
-                        "messages": [{"role": "user", "content": message}],
+                        "max_tokens": 2048,
+                        "system": full_system,
+                        "messages": history + [{"role": "user", "content": message}],
                     },
                 )
                 resp.raise_for_status()
                 data = resp.json()
                 reply = data.get("content", [{}])[0].get("text", "Yanit alinamadi.")
             else:
-                # OpenAI-uyumlu API formatı (OpenRouter, OpenAI, Gemini, Ollama)
+                # OpenAI-uyumlu API formatı (OpenRouter, OpenAI, Gemini, Ollama, Ollama Cloud)
                 headers = {"Content-Type": "application/json"}
                 if api_key:
                     headers["Authorization"] = f"Bearer {api_key}"
                 if provider_id == "openrouter":
                     headers["HTTP-Referer"] = "https://turkiye-mcp.up.railway.app"
 
-                resp = await client.post(
-                    provider_config["url"],
-                    headers=headers,
-                    json={"model": model, "messages": messages, "max_tokens": 1024},
-                )
+                payload = {"model": model, "messages": messages, "max_tokens": 2048}
+                # gpt-oss gibi reasoning modelleri varsayılanda tüm bütçeyi
+                # gizli düşünceye harcayıp content'i boş bırakabiliyor.
+                # Ollama için reasoning_effort=low → modelin nihai yanıtı üretmesini sağlar.
+                if provider_id in ("ollama", "ollama_cloud"):
+                    payload["reasoning_effort"] = "low"
+
+                resp = await client.post(provider_config["url"], headers=headers, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-                reply = data.get("choices", [{}])[0].get("message", {}).get("content", "Yanit alinamadi.")
+                msg = data.get("choices", [{}])[0].get("message", {}) or {}
+                # content boşsa reasoning alanına düş (bazı modeller yanıtı oraya koyar)
+                reply = (msg.get("content") or msg.get("reasoning")
+                         or msg.get("reasoning_content") or "").strip()
+                if not reply:
+                    reply = ("Model yalnızca düşünce üretti, nihai yanıt boş döndü. "
+                             "Lütfen tekrar deneyin veya farklı bir model seçin.")
 
             sources = list(called_tools)[:5]
     except httpx.HTTPStatusError as e:
@@ -2083,8 +2845,13 @@ async def chat_endpoint(request):
         if provider_id == "ollama":
             return JSONResponse({"error": "Ollama baglantisi kurulamadi. Ollama'in calistigindan emin olun (localhost:11434).", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))}, status_code=502)
         return JSONResponse({"error": "LLM saglayicisina baglanilamadi.", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))}, status_code=502)
+    except httpx.TimeoutException:
+        hint = (" Daha küçük/hızlı bir model deneyin (örn. gemma3:4b yerine llama3.2)."
+                if provider_id in ("ollama", "ollama_cloud") else "")
+        return JSONResponse({"error": f"Model yanıtı {llm_timeout}s içinde gelmedi (zaman aşımı).{hint}"}, status_code=504)
     except Exception as e:
-        return JSONResponse({"error": f"Beklenmeyen hata: {str(e)}"}, status_code=500)
+        detail = str(e) or type(e).__name__
+        return JSONResponse({"error": f"Beklenmeyen hata: {detail}"}, status_code=500)
 
     remaining = RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))
     return JSONResponse({"response": reply, "sources": sources[:5], "remaining": remaining, "provider": provider_id, "model": model})
@@ -2112,9 +2879,19 @@ starlette_app = Starlette(
         Route("/api/chat/providers", providers_endpoint, methods=["GET"]),
         Route("/api/chat/configure", configure_llm_endpoint, methods=["POST"]),
         Route("/api/chat/status", llm_status_endpoint, methods=["GET"]),
+        Route("/api/chat/test", test_llm_endpoint, methods=["POST"]),
+        Route("/api/ollama/models", ollama_models_endpoint, methods=["GET"]),
         Route("/api/upload/pdf", upload_pdf_endpoint, methods=["POST"]),
         Route("/api/search/refs", search_document_refs_endpoint, methods=["POST"]),
         Route("/api/upload/uyap", upload_uyap_endpoint, methods=["POST"]),
+        Route("/api/workspace", workspace_snapshot_endpoint, methods=["GET"]),
+        Route("/api/workspace/folder", workspace_folder_endpoint, methods=["POST"]),
+        Route("/api/workspace/session", workspace_session_get_endpoint, methods=["GET"]),
+        Route("/api/workspace/session", workspace_session_save_endpoint, methods=["POST"]),
+        Route("/api/workspace/session/delete", workspace_session_delete_endpoint, methods=["POST"]),
+        Route("/api/workspace/file", workspace_file_upload_endpoint, methods=["POST"]),
+        Route("/api/workspace/files", workspace_files_list_endpoint, methods=["GET"]),
+        Route("/api/workspace/file/delete", workspace_file_delete_endpoint, methods=["POST"]),
         Mount("/", app=mcp_asgi),
     ],
 )

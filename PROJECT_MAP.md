@@ -192,6 +192,18 @@ main()
 
 ## 🔑 Teknik Kararlar ve Geçmiş
 
+### v1.4.0 Değişiklikleri (Çalışma Alanı + Ollama Cloud + Belge/Emsal):
+1. **workspace.py** — yeni modül. Sunucu taraflı klasör (proje), oturum (sohbet) ve dosya kalıcılığı (JSON + ham dosya). Veri dizini `%LOCALAPPDATA%/TurkiyeMCP/workspace` veya `TURKIYE_MCP_DATA_DIR`. Stdlib-only.
+2. **Workspace endpoint'leri** (app.py): `/api/workspace` (GET ağaç), `/api/workspace/folder` (create/rename/delete), `/api/workspace/session` (GET+POST upsert), `/api/workspace/session/delete` (delete/move), `/api/workspace/file` (yükle+çözümle), `/api/workspace/files`, `/api/workspace/file/delete`.
+3. **Ollama Cloud** sağlayıcısı (`ollama_cloud` → ollama.com, API key, OpenAI-uyumlu). Ayrıca yerel `ollama` için **dinamik model listesi** `/api/ollama/models` (localhost:11434/api/tags) → kullanıcının cloud-proxy modelleri (`gpt-oss:120b-cloud` vb.) Ayarlar'da otomatik listelenir.
+4. **gpt-oss boş yanıt düzeltmesi**: reasoning modelleri varsayılanda tüm token bütçesini gizli düşünceye harcayıp `content`'i boş döndürüyordu. Ollama sağlayıcılarına `reasoning_effort: "low"` eklendi + content boşsa `reasoning` alanına fallback. (Kullanıcının "ollama cloud beceremedi" sorununun kök nedeni buydu.)
+5. **Belge bağlamı + emsal**: `chat_endpoint` artık `document_context` (ekli dosya metni) ve `history` (çok turlu süreklilik) alıyor. Ekli belge varsa veya "emsal/içtihat" istenirse `search_emsal` otomatik çağrılır. max_tokens 1024→2048, timeout sağlayıcıya göre (yerel ollama 300s).
+6. **Kararlı API yönetimi**: sağlayıcı başına anahtar (`llm-keys` localStorage map), `/api/chat/test` ile "Bağlantıyı Test Et", model chip düzeltmesi.
+7. **Arayüz**: sidebar klasör ağacı (`data-*` + delegated `setupTree()`), sürükle-bırak ile oturum taşıma, ekli belge chip'leri (⚖ Emsal butonu), toast bildirimleri, "kaldığı yerden devam" (sunucudan en son oturum açılır).
+8. **renderMarkdown düzeltildi** — tek ters bölülü regex'ler (`\n`, `\d`, `\[`, `<\/li>`) servis edilen JS'i bozuyordu; tümü çift ters bölü yapıldı. Markdown artık düzgün render oluyor.
+
+> **ÖNEMLİ (DASHBOARD JS):** `DASHBOARD_HTML` bir `"""..."""` string'i. JS'e ulaşması gereken her ters bölü ÇİFT yazılır (`\\n`). Ayrıca JS ile kurulan string'lere literal apostrof/tek tırnak konmaz (dış string'i bozar). Değişiklik sonrası `node --check` ile doğrula.
+
 ### v1.3.0 Değişiklikleri:
 1. **Premium UI Entegrasyonu** — Eski basit UI → Yeni dark tema premium UI
    - Bricolage Grotesque + Be Vietnam Pro fontları
