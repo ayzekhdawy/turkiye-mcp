@@ -19,8 +19,27 @@ Tek bir masaüstü uygulamasında: Yargıtay, Danıştay, Anayasa Mahkemesi, Kİ
 </div>
 
 <p align="center">
-  <img src="docs/dashboard.png" alt="Türkiye MCP arayüzü — çalışma alanı, belge eki ve emsal akışı" width="100%" />
+  <img src="docs/02-chat.png" alt="Türkiye MCP — belge yükleme, emsal karar analizi ve çalışma alanı" width="100%" />
 </p>
+
+---
+
+## 🖼️ Ekran Görüntüleri
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/01-hero.png" alt="Karşılama ekranı" /><p align="center"><sub>Karşılama — hızlı başlangıç kartları</sub></p></td>
+    <td width="50%"><img src="docs/02-chat.png" alt="Emsal karar analizi" /><p align="center"><sub>Belge + emsal analizi (künye & Bedesten ID ile)</sub></p></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/04-gateway.png" alt="Gateway paneli" /><p align="center"><sub>Sistem · Gateway — yedek model (failover) & metrikler</sub></p></td>
+    <td width="50%"><img src="docs/05-skills.png" alt="Skills paneli" /><p align="center"><sub>Sistem · Skills — uzmanlıkları aç/kapat</sub></p></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/06-tools.png" alt="Araç kataloğu" /><p align="center"><sub>Sistem · Araçlar — 31 MCP aracının kataloğu</sub></p></td>
+    <td width="50%"><img src="docs/03-settings.png" alt="Ayarlar" /><p align="center"><sub>Ayarlar — sağlayıcı, model & bağlantı testi</sub></p></td>
+  </tr>
+</table>
 
 ---
 
