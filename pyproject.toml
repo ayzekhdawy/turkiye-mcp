@@ -4,7 +4,7 @@ version = "1.6.0"
 description = "Unified MCP Server for Turkish Legal, Financial, Procurement and Market Data - Türkiye Hukuk, Mali, İhale ve Piyasa Verileri"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = {text = "Ticari Olmayan Kullanım Lisansı (Non-Commercial) — bkz. LICENSE"}
 authors = [
     {name = "İshak Hedeoğlu", email = "ishakhedevi@gmail.com"},
 ]

@@ -22,7 +22,7 @@ ASGI uygulaması (Starlette + FastMCP), pywebview ile masaüstü penceresi.
 - **Test notu:** yerel CPU yavaş; testlerde `minimax-m2.7:cloud` (ollama cloud-proxy, ~5sn) kullan. Hukuk sorgularının yavaşlığı canlı araç çağrılarından (search_bedesten/emsal dış API) kaynaklı, model değil.
 
 ## 🆕 v1.5.0 — Avukat Modu (Belge Zekâsı, Skills, Çapraz Hafıza, Durdurma)
-- **skills.py + skills/<ad>/SKILL.md** — Anthropic skill formatında oyun kitapları. `select_skills(message, doc_type)` bağlama göre seçer, `build_skills_prompt` sistem promptuna enjekte eder. EXE'de spec `datas`'a `skills/` eklenir.
+- **skills.py + skills/<ad>/SKILL.md** — YAML başlık + markdown gövdeli uzmanlık yönergeleri (playbook). `select_skills(message, doc_type)` bağlama göre seçer, `build_skills_prompt` sistem promptuna enjekte eder. EXE'de spec `datas`'a `skills/` eklenir.
 - **Belge zekâsı** — `_classify_document(text)` belge türü/taraf/konu çıkarır (sezgisel, LLM gerektirmez). Upload yanıtında `understanding` döner.
 - **Çapraz hafıza** — `workspace.find_related(refs, keywords, exclude_session_id)` tüm oturumlarda aynı esas/karar no veya konu eşleşmesi arar. Upload yanıtında `related` döner; chat'te "benzer kayıt var" olarak enjekte edilir.
 - **chat_endpoint** artık `doc_type` + `related` alır; SYSTEM_PROMPT avukat personası + ilgililik denetimi.

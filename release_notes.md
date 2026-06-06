@@ -1,6 +1,6 @@
 ## 🇹🇷 Türkiye MCP v1.6.0 — Gateway · Genişletilmiş Skills & Araçlar
 
-[OpenClaw](https://github.com/openclaw/openclaw) mimarisinden esinlenerek merkezi bir **Gateway** katmanı, daha kapsamlı **skills** ve bir **araç kataloğu** eklendi.
+Merkezi bir **Gateway** katmanı, daha kapsamlı **skills** ve bir **araç kataloğu** eklendi.
 
 ### 🔀 LLM Gateway + Otomatik Failover
 - Tüm model çağrıları artık tek bir **gateway** katmanından geçer
@@ -12,7 +12,7 @@
 Hukuki Emsal Araştırması · Belge Analizi · **İcra-İflas** · **Kira-Gayrimenkul** · **Vergi Uyuşmazlıkları** · **İş Hukuku** · **Sözleşme İnceleme** · Mali Müşavirlik · Kamu İhale
 - Her skill **açılıp kapatılabilir** (Sistem → Skills)
 - Yanıtta **hangi uzmanlığın uygulandığı** ⚡ etiketle gösterilir
-- `skills/<ad>/SKILL.md` ekleyerek genişletilebilir ([Anthropic skill formatı](https://github.com/anthropics/skills))
+- `skills/<ad>/SKILL.md` (YAML başlık + markdown) ekleyerek genişletilebilir
 
 ### 🧰 Araç Kataloğu (31 araç)
 - **Sistem paneli** → Araçlar sekmesi: tüm MCP araçları kategori bazında (Hukuk, Mali, İhale, Piyasa, UYAP…), aktif/pasif durumlarıyla

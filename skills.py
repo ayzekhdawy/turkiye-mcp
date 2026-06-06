@@ -1,4 +1,4 @@
-"""skills.py — Anthropic skill formatında "oyun kitabı" (playbook) sistemi.
+"""skills.py — Uzmanlık yönergeleri ("oyun kitabı" / playbook) sistemi.
 
 `skills/<skill-adi>/SKILL.md` dosyalarını yükler. Her dosya YAML frontmatter
 (name, description, triggers, doc_types) + markdown gövde (yönerge) içerir.
@@ -6,7 +6,8 @@ Kullanıcı mesajı ve (varsa) yüklenen belgenin türüne göre ilgili skill'le
 seçilir ve sistem promptuna enjekte edilir. Böylece model — hangi LLM olursa
 olsun — alan uzmanı bir avukat/mali müşavir gibi yapılandırılmış davranır.
 
-Referans format: https://github.com/anthropics/skills
+Yeni bir uzmanlık eklemek için skills/ altına bir SKILL.md dosyası eklemek
+yeterlidir.
 """
 
 from __future__ import annotations

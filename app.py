@@ -36,7 +36,7 @@ except Exception as _ws_err:  # pragma: no cover
     WORKSPACE_AVAILABLE = False
 
 try:
-    import skills as skills_engine  # Anthropic-format skill playbook'ları
+    import skills as skills_engine  # Uzmanlık yönergesi (skill) sistemi
     SKILLS_AVAILABLE = True
 except Exception:
     skills_engine = None

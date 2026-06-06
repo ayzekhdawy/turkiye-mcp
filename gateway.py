@@ -1,10 +1,10 @@
 """gateway.py — LLM Gateway (merkezi sağlayıcı yönlendirme + failover).
 
-OpenClaw'ın "gateway" kavramından esinlenir: tüm LLM çağrılarını tek bir
-kontrol katmanında toplar. Bir model zinciri (chain) verilir; birincil model
-başarısız olursa (zaman aşımı, 400, bağlantı hatası veya BOŞ yanıt) sıradaki
-modele otomatik geçilir. Sağlayıcı başına metrik (başarı/başarısızlık/gecikme)
-tutulur ve /api/gateway/status ile sunulur.
+Tüm LLM çağrılarını tek bir kontrol katmanında toplar. Bir model zinciri
+(chain) verilir; birincil model başarısız olursa (zaman aşımı, 400, bağlantı
+hatası veya BOŞ yanıt) sıradaki modele otomatik geçilir. Sağlayıcı başına
+metrik (başarı/başarısızlık/gecikme) tutulur ve /api/gateway/status ile
+sunulur.
 
 Tek başına çalışır; sağlayıcı tanımları (providers dict) dışarıdan verilir.
 """

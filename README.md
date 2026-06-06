@@ -12,7 +12,7 @@ Tek bir masaüstü uygulamasında: Yargıtay, Danıştay, Anayasa Mahkemesi, Kİ
 [![Download](https://img.shields.io/github/downloads/ayzekhdawy/turkiye-mcp/total?label=indirme&color=2fbf71)](https://github.com/ayzekhdawy/turkiye-mcp/releases/latest)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776ab)
-![License](https://img.shields.io/badge/lisans-MIT-green)
+![License](https://img.shields.io/badge/lisans-Ticari%20Olmayan-orange)
 
 ### [⬇️ Windows için indir (TurkiyeMCP.exe)](https://github.com/ayzekhdawy/turkiye-mcp/releases/latest)
 
@@ -194,14 +194,14 @@ Türkiye MCP yalnızca arama yapmaz; **bağlama göre uzmanlaşır**:
 - **Belge zekâsı** — Yüklenen belgenin **türünü** (dava dilekçesi, mahkeme kararı, sözleşme, ihtarname, fatura…), **taraflarını** ve **konusunu** otomatik tespit eder.
 - **İlgililik denetimi** — Sorunuz yüklediğiniz belgeyle ilgisizse model **kibarca uyarır**, sonra yine de yardımcı olur.
 - **Çapraz hafıza** — Aynı esas/karar numarası veya benzer konu başka bir **klasör/sohbette** geçiyorsa, *"Çalışma alanınızdaki '…' kaydında benzer bir durum var"* diyerek sizi yönlendirir.
-- **Skills (uzmanlık yönergeleri)** — [`skills/`](skills) dizinindeki [Anthropic skill formatında](https://github.com/anthropics/skills) oyun kitapları (hukuki emsal araştırması, belge analizi, mali müşavirlik, ihale) bağlama göre seçilip modele enjekte edilir. Yeni bir `skills/<ad>/SKILL.md` ekleyerek modeli kolayca yeni bir uzmanlıkla donatabilirsiniz.
+- **Skills (uzmanlık yönergeleri)** — [`skills/`](skills) dizinindeki, YAML başlık + markdown gövdeden oluşan oyun kitapları (hukuki emsal araştırması, belge analizi, mali müşavirlik, ihale ve daha fazlası) bağlama göre seçilip modele enjekte edilir. Yeni bir `skills/<ad>/SKILL.md` ekleyerek modeli kolayca yeni bir uzmanlıkla donatabilirsiniz.
 - **Durdurma** — Yanıt üretilirken **⏹ durdurma** düğmesiyle anında iptal edebilirsiniz.
 
 ---
 
 ## 🔀 Gateway & Sistem Paneli
 
-[OpenClaw](https://github.com/openclaw/openclaw) mimarisinden esinlenen merkezi bir **LLM Gateway** tüm model çağrılarını yönetir:
+Merkezi bir **LLM Gateway** tüm model çağrılarını yönetir:
 
 - **Otomatik failover** — Birincil model hata, zaman aşımı veya **boş yanıt** verirse, tanımladığınız **yedek modellere** sırayla otomatik geçilir (ör. yerel Ollama → Ollama Cloud → OpenRouter). Yanıtta hangi modelin kullanıldığı ve yedeğe geçilip geçilmediği gösterilir.
 - **Metrikler** — Sağlayıcı başına başarı/başarısızlık/ortalama gecikme.
@@ -329,7 +329,9 @@ TurkiyeMCP.exe --debug      # Konsol penceresini göster
 
 ## 📜 Lisans
 
-MIT — bkz. proje sahibinin koşulları.
+**Ticari Olmayan Kullanım Lisansı** — bkz. [LICENSE](LICENSE).
+
+Bu yazılım yalnızca **kişisel ve ticari olmayan** amaçlarla ücretsiz kullanılabilir. Satılması, kiralanması, bir ürün/hizmet olarak pazarlanması veya herhangi bir biçimde maddi kazanç sağlanması **yasaktır**. Ticari kullanım için telif hakkı sahibinden yazılı izin gerekir.
 
 ## 🙏 Teşekkürler
 
