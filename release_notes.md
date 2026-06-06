@@ -1,25 +1,16 @@
-## 🇹🇷 Türkiye MCP v1.6.0 — Gateway · Genişletilmiş Skills & Araçlar
+## 🇹🇷 Türkiye MCP v1.6.1 — Gerçek Emsal Karar Metinleri
 
-Merkezi bir **Gateway** katmanı, daha kapsamlı **skills** ve bir **araç kataloğu** eklendi.
+Belge yükleyip emsal karşılaştırması istendiğinde artık **gerçek karar metinleri** çekilir — model artık karar içeriğini uydurmaz.
 
-### 🔀 LLM Gateway + Otomatik Failover
-- Tüm model çağrıları artık tek bir **gateway** katmanından geçer
-- **Model failover:** Birincil model hata/zaman aşımı/**boş yanıt** verirse, tanımladığınız **yedek modellere** sırayla otomatik geçilir (örn. yerel Ollama → Ollama Cloud → OpenRouter)
-- **Metrikler:** Sağlayıcı başına başarı/başarısızlık/ortalama gecikme — Sistem panelinde
-- Reasoning modelleri (gpt-oss, minimax, deepseek…) için token bütçesi otomatik artırılır → boş yanıt sorunu giderildi
-
-### ⚡ Genişletilmiş Skills (9 uzmanlık)
-Hukuki Emsal Araştırması · Belge Analizi · **İcra-İflas** · **Kira-Gayrimenkul** · **Vergi Uyuşmazlıkları** · **İş Hukuku** · **Sözleşme İnceleme** · Mali Müşavirlik · Kamu İhale
-- Her skill **açılıp kapatılabilir** (Sistem → Skills)
-- Yanıtta **hangi uzmanlığın uygulandığı** ⚡ etiketle gösterilir
-- `skills/<ad>/SKILL.md` (YAML başlık + markdown) ekleyerek genişletilebilir
-
-### 🧰 Araç Kataloğu (31 araç)
-- **Sistem paneli** → Araçlar sekmesi: tüm MCP araçları kategori bazında (Hukuk, Mali, İhale, Piyasa, UYAP…), aktif/pasif durumlarıyla
-- Yanıtlarda çağrılan araçlar ve **kullanılan model** zengin biçimde gösterilir
-
-### 🖥️ Yeni "Sistem" Paneli
-Sağ üstteki ▦ düğmesi: **Gateway** (failover + metrikler), **Skills** (aç/kapa), **Araçlar** (katalog) tek yerde.
+### ⚖️ Emsal Analizi Yeniden Yazıldı
+- **Konuya göre arama:** Emsal, belgenin KENDİ esas/karar numaralarıyla değil; belgeden çıkarılan **konu/suç tipiyle** (ör. *"banka veya kredi kartlarının kötüye kullanılması, TCK 245"*) aranır.
+- **Gerçek metin çekimi:** Bulunan kararların ilk birkaçının **TAM METNİ** Bedesten'den indirilir ve modele verilir. Böylece karşılaştırma uydurmaya değil, gerçek içeriğe dayanır.
+- **Künye + referans:** Her emsal **Mahkeme/Daire · Esas No · Karar No · Bedesten ID** ile sunulur; ID, kararın UYAP/Bedesten'de bulunması için referanstır.
+- **Yapılandırılmış çıktı:** Olay → emsalin ilgili kısmı/ilkesi → **benzerlik/farklılık** → **olası sonuç (lehte/aleyhte)** → öneriler.
+- **Uydurma yasağı:** Metni verilmeyen bir kararın içeriği aktarılmaz; içerik çekilemezse bu açıkça belirtilir.
+- Ceza nitelikli belgelerde (iddianame, savcılık) ceza daireleri; hukuk uyuşmazlıklarında hukuk daireleri taranır.
 
 ### 📥 İndirme
-- **TurkiyeMCP.exe** — Windows 10/11 (64-bit), kurulumsuz. Veriler cihazınızda kalır.
+- **TurkiyeMCP.exe** — Windows 10/11 (64-bit), kurulumsuz.
+
+> ⚠️ Üretilen analiz bilgilendirme amaçlıdır; nihai karar için karar metinlerini ve mevzuatı resmi kaynaktan teyit ediniz.

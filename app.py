@@ -2270,6 +2270,97 @@ async def _route_and_call(message: str) -> str:
     return "\n---\n".join(results) if results else "", called
 
 
+# Suç/konu → kanonik hukuki arama terimi eşlemesi (emsal için anlamlı sorgu üretir)
+_LEGAL_SUBJECT_MAP = [
+    (["kredi kart", "banka kart", "pos ", "kart bilgis"], "banka veya kredi kartlarının kötüye kullanılması"),
+    (["dolandırıcılık", "dolandirici"], "dolandırıcılık suçu"),
+    (["nitelikli hırsızlık", "hırsızlık", "hirsizlik"], "hırsızlık suçu"),
+    (["güveni kötüye", "guveni kotuye", "emniyeti suistimal"], "güveni kötüye kullanma"),
+    (["sahtecilik", "sahte belge", "evrakta sahte"], "resmi belgede sahtecilik"),
+    (["zimmet"], "zimmet suçu"),
+    (["rüşvet", "rusvet"], "rüşvet suçu"),
+    (["uyuşturucu", "uyusturucu"], "uyuşturucu madde ticareti"),
+    (["kasten öldür", "kasten oldur", "adam öldür"], "kasten öldürme"),
+    (["kasten yaralama", "yaralama", "darp"], "kasten yaralama"),
+    (["tehdit"], "tehdit suçu"),
+    (["hakaret"], "hakaret suçu"),
+    (["cinsel saldırı", "cinsel istismar", "cinsel taciz"], "cinsel saldırı"),
+    (["bilişim", "bilisim", "sistem girme"], "bilişim sistemine girme suçu"),
+    (["kişisel veri", "kvkk", "verilerin hukuka aykırı"], "kişisel verilerin hukuka aykırı ele geçirilmesi"),
+    (["boşanma", "bosanma"], "boşanma davası"),
+    (["nafaka"], "nafaka"),
+    (["kıdem", "ihbar tazminat"], "kıdem ve ihbar tazminatı"),
+    (["işe iade", "ise iade"], "işe iade davası"),
+    (["kira tespit", "kira bedel"], "kira tespiti davası"),
+    (["tahliye"], "kiralananın tahliyesi"),
+    (["tapu iptal", "tapu iptali"], "tapu iptali ve tescili"),
+    (["trafik kaza", "maddi tazminat", "destekten yoksun"], "trafik kazası tazminatı"),
+]
+
+
+def _legal_search_terms(text: str) -> str:
+    """Belge/mesaj metninden emsal araması için anlamlı bir hukuki sorgu üretir.
+
+    Belgenin KENDİ esas/karar numaralarını DEĞİL, konuyu/suç tipini esas alır.
+    """
+    low = (text or "").lower()
+    hits = []
+    for needles, canonical in _LEGAL_SUBJECT_MAP:
+        if any(n in low for n in needles):
+            hits.append(canonical)
+    # TCK/CMK madde atıfları
+    arts = re.findall(r"\b(?:tck|ceza\s*kanunu)[^0-9]{0,12}(\d{2,3})", low)
+    if arts:
+        hits.append(f"TCK {arts[0]}")
+    # En çok 2 kanonik terim → odaklı sorgu
+    if hits:
+        # tekrarsız, sırayı koru
+        seen = set(); uniq = [h for h in hits if not (h in seen or seen.add(h))]
+        return " ".join(uniq[:2])
+    return ""
+
+
+def _is_criminal_context(text: str) -> bool:
+    low = (text or "").lower()
+    return any(k in low for k in ["iddianame", "savcılık", "savcilik", "şüpheli", "supheli",
+                                   "sanık", "sanik", "müşteki", "musteki", "tck", "ceza",
+                                   "soruşturma", "sorusturma", "kovuşturma"])
+
+
+async def _fetch_emsal_with_content(query: str, criminal: bool = False, limit: int = 3) -> str:
+    """Bedesten'de emsal arar ve ilk birkaç kararın TAM METNİNİ çeker.
+
+    Sadece karar numarası değil; gerçek içerik döndürür ki model uydurmasın.
+    """
+    if not query.strip() or not MODULES_AVAILABLE.get("bedesten"):
+        return ""
+    court_types = ["YARGITAYKARARI", "KYB"] if criminal else \
+                  ["YARGITAYKARARI", "ISTINAFHUKUK", "YERELHUKUK"]
+    try:
+        listing = await _call_tool("search_bedesten_unified", keyword=query,
+                                    court_types=court_types, page_number=1)
+    except Exception as e:
+        return f"### Emsal arama hatası\n{e}"
+    if not listing or "❌" in listing:
+        return ""
+    parts = [f"### EMSAL ARAMA — sorgu: \"{query}\"\n{listing}"]
+    ids = re.findall(r"ID:\s*`([^`]+)`", listing)
+    fetched = 0
+    for did in ids:
+        if fetched >= limit:
+            break
+        try:
+            content = await _call_tool("get_bedesten_document", document_id=did)
+        except Exception:
+            continue
+        if content and "❌" not in content and "bulunamad" not in content.lower():
+            parts.append(f"#### KARAR TAM METNİ (Bedesten ID: {did})\n{content[:2800]}")
+            fetched += 1
+    if fetched == 0:
+        parts.append("_(Karar metinleri çekilemedi; yalnızca künye listesi mevcut.)_")
+    return "\n\n".join(parts)
+
+
 async def providers_endpoint(request):
     """Desteklenen LLM sağlayıcılarını listeler."""
     return JSONResponse({
@@ -3155,30 +3246,28 @@ async def chat_endpoint(request):
             if role in ("user", "assistant") and text:
                 history.append({"role": role, "content": text[:2000]})
 
-    # MCP araçlarını çağır — kullanıcı mesajı + belge referansları üzerinden
-    search_basis = message
-    if document_context:
-        # Belgedeki referansları arama tabanına ekle (emsal/içtihat bulmak için)
-        try:
-            doc_refs = _extract_document_refs(document_context)
-            ref_terms = " ".join(r.get("search_term", "") for r in doc_refs[:5])
-            if ref_terms.strip():
-                search_basis = (message + " " + ref_terms)[:500]
-        except Exception:
-            pass
+    # MCP araçlarını çağır — kullanıcı mesajı üzerinden
+    tool_context, called_tools = await _route_and_call(message)
 
-    tool_context, called_tools = await _route_and_call(search_basis)
-
-    # Kullanıcı emsal/içtihat isterse veya belge ekliyse, emsal aramasını garanti et
+    # Kullanıcı emsal/içtihat isterse veya belge ekliyse: emsal kararların
+    # GERÇEK METİNLERİNİ çek (belgenin kendi numaralarını değil, KONUSUNU arar).
     wants_precedent = any(k in message.lower() for k in
-                          ["emsal", "içtihat", "ictihat", "benzer karar", "örnek karar", "ornek karar"])
-    if (wants_precedent or document_context) and "search_emsal" not in called_tools:
+                          ["emsal", "içtihat", "ictihat", "benzer karar", "örnek karar",
+                           "ornek karar", "karşılaştır", "karsilastir", "benzer"])
+    emsal_query = ""
+    if wants_precedent or document_context:
+        basis_text = (document_context + " " + message) if document_context else message
+        emsal_query = _legal_search_terms(basis_text)
+        if not emsal_query:
+            # konu çıkarılamadıysa belge konusundan/mesajdan kısa bir sorgu
+            emsal_query = (message or "")[:70]
         try:
-            emsal_term = (search_basis or message)[:60]
-            emsal_res = await _call_tool("search_emsal", keyword=emsal_term)
-            if emsal_res and "[Hata" not in emsal_res and "bulunamad" not in emsal_res.lower():
-                tool_context = (tool_context + "\n---\n" if tool_context else "") + f"### search_emsal\n{emsal_res}\n"
-                called_tools.add("search_emsal")
+            criminal = _is_criminal_context(basis_text)
+            emsal_block = await _fetch_emsal_with_content(emsal_query, criminal=criminal, limit=3)
+            if emsal_block:
+                tool_context = (tool_context + "\n---\n" if tool_context else "") + emsal_block
+                called_tools.add("search_bedesten_unified")
+                called_tools.add("get_bedesten_document")
         except Exception:
             pass
 
@@ -3203,10 +3292,27 @@ async def chat_endpoint(request):
         dt_label = (" (" + doc_type + ")") if doc_type else ""
         doc_system = (
             f"\n\nKULLANICI BİR BELGE YÜKLEDİ{dt_label}. Önce belgenin türünü, taraflarını ve "
-            "konusunu kısaca özetle. Soru belgeyle ilgisizse kibarca belirt, sonra yine de yanıtla. "
-            "Belgeyle ilgiliyse esas/karar numaralarını ve konuyu esas alıp ilgili EMSAL kararları ve "
-            "içtihatları MCP araç sonuçlarından detaylıca aktar.\n\n--- BELGE İÇERİĞİ ---\n"
+            "konusunu (suç tipi/uyuşmazlık) kısaca özetle. Soru belgeyle ilgisizse kibarca belirt, "
+            "sonra yine de yanıtla.\n\n--- BELGE İÇERİĞİ ---\n"
             + document_context + "\n--- BELGE SONU ---"
+        )
+
+    # Emsal kararların GERÇEK metni çekildiyse: katı kullanım + künye + karşılaştırma yönergesi
+    emsal_system = ""
+    if "EMSAL ARAMA" in (tool_context or ""):
+        emsal_system = (
+            "\n\nEMSAL KARARLAR — ÖNEMLİ KURALLAR:\n"
+            "1. Aşağıdaki MCP araç sonuçlarında 'KARAR TAM METNİ' başlıklı bölümler GERÇEK karar "
+            "metinleridir. Karşılaştırma ve sonuç çıkarımını YALNIZCA bu metinlere dayandır.\n"
+            "2. ASLA uydurma karar veya genel 'genellikle ... ile ilgilidir' türü tahmini açıklama "
+            "yazma. Bir kararın içeriğini ancak metni verildiyse aktar.\n"
+            "3. Her emsal için künyeyi tam yaz: **Mahkeme/Daire | Esas No | Karar No | (Bedesten ID)**. "
+            "ID, kullanıcının UYAP/Bedesten'de karara ulaşması için referanstır.\n"
+            "4. Şu yapıyı kullan: (a) Belgedeki olay ve hukuki nitelendirme, (b) Her emsal kararın "
+            "ilgili kısmı ve ortaya koyduğu ilke, (c) **Benzerlik/Farklılık** (olgular, deliller, "
+            "hukuki nitelendirme), (d) **Olası sonuç** (lehte/aleyhte, ihtiyatlı dille), (e) öneriler.\n"
+            "5. İçerik çekilemediyse bunu açıkça belirt; künye listesini emsal olarak sun ama içerik "
+            "uydurma."
         )
 
     # Çapraz hafıza: kullanıcının çalışma alanındaki benzer kayıtlar
@@ -3226,7 +3332,7 @@ async def chat_endpoint(request):
     full_system = SYSTEM_PROMPT
     if skills_prompt:
         full_system += "\n\n" + skills_prompt
-    full_system += doc_system + related_system
+    full_system += doc_system + emsal_system + related_system
     if tool_context:
         full_system += f"\n\nMCP araç sonuçları:\n\n{tool_context}"
 

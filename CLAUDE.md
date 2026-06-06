@@ -13,6 +13,10 @@ ASGI uygulaması (Starlette + FastMCP), pywebview ile masaüstü penceresi.
 - **JS ile kurulan string'lere apostrof/tek tırnak literal koyma** — inline handler argümanları değişken birleştirme olmalı (`fn(\'' + id + '\')`), literal değil. Klasör/oturum ağacı `data-*` attribute + delegated listener kullanır (`setupTree()`).
 - **gpt-oss / reasoning modelleri için `reasoning_effort: "low"`** — Ollama'da gpt-oss varsayılanda tüm token bütçesini gizli düşünceye harcayıp `content`'i BOŞ döndürür. Ollama sağlayıcılarında `reasoning_effort=low` gönderilir; ayrıca content boşsa `reasoning` alanına fallback yapılır.
 
+## 🆕 v1.6.1 — Gerçek Emsal Karar Metinleri
+- **Emsal artık GERÇEK içerikle:** `_legal_search_terms(text)` belgeden konu/suç tipini (belgenin kendi numaralarını DEĞİL) çıkarır; `_fetch_emsal_with_content(query, criminal, limit)` Bedesten'de arar + ilk N kararın TAM METNİNİ `get_bedesten_document` ile çeker. Model uydurmaz, gerçek metni karşılaştırır, künye+Bedesten ID verir. `_is_criminal_context` ile ceza/hukuk daire seçimi.
+- chat_endpoint: `emsal_system` katı yönerge (uydurma yasak, künye zorunlu, benzerlik/farklılık + olası sonuç yapısı). `search_emsal` ID döndürmediği için içerik çekiminde **bedesten** kullanılır.
+
 ## 🆕 v1.6.0 — Gateway, Genişletilmiş Skills & Araç Kataloğu
 - **gateway.py (LLMGateway)** — tüm LLM çağrıları buradan geçer. `complete(system, history, message, chain, api_keys, timeout_for)` model zincirini sırayla dener; hata/timeout/connect/**boş yanıt** → sonraki modele failover. Sağlayıcı başına metrik. `chat_endpoint` artık inline httpx yerine `GATEWAY.complete` çağırır; body'den `fallbacks` + `api_keys` alır; yanıtta `attempts` + `skills_used` döner.
 - **reasoning max_tokens (kritik):** reasoning modelleri (`is_reasoning_model`) için `max_tokens=4096` (yoksa büyük sistem promptunda reasoning bütçeyi tüketip content BOŞ döner). reasoning_effort=low yine yalnızca reasoning modellerine; 400'de parametresiz retry.
