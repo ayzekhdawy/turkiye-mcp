@@ -1,16 +1,12 @@
-## 🇹🇷 Türkiye MCP v1.6.1 — Gerçek Emsal Karar Metinleri
+## 🇹🇷 Türkiye MCP v1.6.2 — Token & Bağlam Kullanımı
 
-Belge yükleyip emsal karşılaştırması istendiğinde artık **gerçek karar metinleri** çekilir — model artık karar içeriğini uydurmaz.
+Artık her yanıtın **token tüketimini** ve modelin **bağlam penceresi doluluğunu** görebilirsiniz.
 
-### ⚖️ Emsal Analizi Yeniden Yazıldı
-- **Konuya göre arama:** Emsal, belgenin KENDİ esas/karar numaralarıyla değil; belgeden çıkarılan **konu/suç tipiyle** (ör. *"banka veya kredi kartlarının kötüye kullanılması, TCK 245"*) aranır.
-- **Gerçek metin çekimi:** Bulunan kararların ilk birkaçının **TAM METNİ** Bedesten'den indirilir ve modele verilir. Böylece karşılaştırma uydurmaya değil, gerçek içeriğe dayanır.
-- **Künye + referans:** Her emsal **Mahkeme/Daire · Esas No · Karar No · Bedesten ID** ile sunulur; ID, kararın UYAP/Bedesten'de bulunması için referanstır.
-- **Yapılandırılmış çıktı:** Olay → emsalin ilgili kısmı/ilkesi → **benzerlik/farklılık** → **olası sonuç (lehte/aleyhte)** → öneriler.
-- **Uydurma yasağı:** Metni verilmeyen bir kararın içeriği aktarılmaz; içerik çekilemezse bu açıkça belirtilir.
-- Ceza nitelikli belgelerde (iddianame, savcılık) ceza daireleri; hukuk uyuşmazlıklarında hukuk daireleri taranır.
+### 🔢 Token & Bağlam Takibi
+- Her asistan yanıtının altında: **token sayısı** (giriş→çıkış) ve **bağlam doluluğu %** (modelin tahmini bağlam penceresine göre).
+- Üst barda **oturum token toplamı** rozeti.
+- **Sistem → Gateway** sekmesinde sağlayıcı başına toplam token.
+- Sağlayıcı `usage` döndürmezse giriş token'ı metinden tahmin edilir; model bağlam penceresi model adından kestirilir (ör. minimax/claude 200K, gpt-oss/llama 128K, gemma 8K).
 
 ### 📥 İndirme
 - **TurkiyeMCP.exe** — Windows 10/11 (64-bit), kurulumsuz.
-
-> ⚠️ Üretilen analiz bilgilendirme amaçlıdır; nihai karar için karar metinlerini ve mevzuatı resmi kaynaktan teyit ediniz.

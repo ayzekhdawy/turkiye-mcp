@@ -30,6 +30,39 @@ def is_reasoning_model(model: str) -> bool:
     return any(h in m for h in _REASONING_HINTS)
 
 
+# Model adından bağlam penceresi (token) tahmini — kullanım göstergesi için
+_CONTEXT_TABLE = [
+    (("gpt-4o", "gpt-4.1", "gpt-4-turbo", "o1", "o3", "gpt-oss"), 128000),
+    (("gpt-3.5",), 16000),
+    (("claude",), 200000),
+    (("gemini-1.5", "gemini-2", "gemini-3"), 1000000),
+    (("llama3.1", "llama3.2", "llama3.3", "llama-3.1", "llama-3.3"), 128000),
+    (("qwen3",), 32000), (("qwen2.5",), 32000),
+    (("deepseek",), 64000), (("minimax",), 200000),
+    (("glm-4",), 128000), (("kimi",), 128000),
+    (("mistral", "mixtral"), 32000),
+    (("gemma3", "gemma2", "gemma4"), 8192),
+    (("nemotron", "command",), 128000),
+]
+
+
+def estimate_context(model: str) -> int:
+    m = (model or "").lower()
+    for keys, ctx in _CONTEXT_TABLE:
+        if any(k in m for k in keys):
+            return ctx
+    return 8192
+
+
+def _extract_usage(data: dict) -> dict:
+    """OpenAI/Anthropic yanıtından token kullanımını normalize eder."""
+    u = data.get("usage") or {}
+    prompt = u.get("prompt_tokens", u.get("input_tokens", 0)) or 0
+    completion = u.get("completion_tokens", u.get("output_tokens", 0)) or 0
+    total = u.get("total_tokens", (prompt + completion)) or (prompt + completion)
+    return {"prompt": int(prompt), "completion": int(completion), "total": int(total)}
+
+
 class LLMGateway:
     """Çok sağlayıcılı LLM yönlendirme + failover + metrik."""
 
@@ -60,7 +93,8 @@ class LLMGateway:
                 })
                 resp.raise_for_status()
                 data = resp.json()
-                return (data.get("content", [{}])[0].get("text", "") or "").strip()
+                text = (data.get("content", [{}])[0].get("text", "") or "").strip()
+                return {"text": text, "usage": _extract_usage(data)}
 
             # OpenAI uyumlu (OpenRouter/OpenAI/Gemini/Ollama/Ollama Cloud)
             headers = {"Content-Type": "application/json"}
@@ -82,8 +116,15 @@ class LLMGateway:
             resp.raise_for_status()
             data = resp.json()
             msg = data.get("choices", [{}])[0].get("message", {}) or {}
-            return (msg.get("content") or msg.get("reasoning")
+            text = (msg.get("content") or msg.get("reasoning")
                     or msg.get("reasoning_content") or "").strip()
+            usage = _extract_usage(data)
+            # Bazı sağlayıcılar prompt_tokens döndürmez → girdiden kabaca tahmin et (~4 char/token)
+            if not usage["prompt"]:
+                approx = len(system) + sum(len(h.get("content", "")) for h in history) + len(message)
+                usage["prompt"] = approx // 4
+                usage["total"] = usage["prompt"] + usage["completion"]
+            return {"text": text, "usage": usage}
 
     # ---- zincir üzerinden tamamlama (failover) ----
     async def complete(self, *, system: str, history: List[Dict[str, str]], message: str,
@@ -109,14 +150,23 @@ class LLMGateway:
             m["calls"] += 1
             t0 = time.time()
             try:
-                reply = await self._call_one(pid, model, system, history, message, api_key, timeout)
+                out = await self._call_one(pid, model, system, history, message, api_key, timeout)
+                reply = out.get("text", "")
+                usage = out.get("usage", {"prompt": 0, "completion": 0, "total": 0})
                 dt = (time.time() - t0) * 1000
                 m["latency_ms"] += dt
                 if reply:
                     m["ok"] += 1
                     m["last"] = "ok"
-                    attempts.append({"provider": pid, "model": model, "status": "ok", "ms": int(dt)})
-                    return {"reply": reply, "provider": pid, "model": model, "attempts": attempts}
+                    m["tokens"] = m.get("tokens", 0) + usage.get("total", 0)
+                    ctx = estimate_context(model)
+                    used = usage.get("total", 0)
+                    attempts.append({"provider": pid, "model": model, "status": "ok",
+                                     "ms": int(dt), "tokens": usage.get("total", 0)})
+                    return {"reply": reply, "provider": pid, "model": model, "attempts": attempts,
+                            "usage": usage,
+                            "context": {"window": ctx, "used": used,
+                                        "ratio": round(used / ctx, 4) if ctx else 0}}
                 m["empty"] += 1
                 m["last"] = "empty"
                 attempts.append({"provider": pid, "model": model, "status": "empty"})
@@ -157,5 +207,6 @@ class LLMGateway:
                 "calls": int(m["calls"]), "ok": int(ok), "fail": int(m["fail"]),
                 "empty": int(m["empty"]), "last": m["last"],
                 "avg_latency_ms": int(m["latency_ms"] / ok) if ok else 0,
+                "tokens": int(m.get("tokens", 0)),
             }
         return out

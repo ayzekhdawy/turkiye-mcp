@@ -13,7 +13,7 @@
 
 ## Sıradaki maddeler (öncelik sırasıyla)
 
-- [ ] **1. Token & bağlam kullanımı takibi** — Gateway yanıttaki `usage` (prompt/completion/total token) verisini yakalasın; model bağlam penceresi tahmini + kalan oran UI'de gösterilsin. Sohbet başına ve sağlayıcı başına token toplamı.
+- [x] **1. Token & bağlam kullanımı takibi** — Gateway `usage` (prompt/completion/total) yakalar; prompt eksikse girdiden tahmin eder. Mesaj alt bilgisinde token + bağlam %'si, topbar'da oturum token toplamı, Sistem→Gateway'de sağlayıcı başına token. (v1.6.2)
 - [ ] **2. Ayarlar paneli geliştirme** — Tema, dil, veri dizini, token bütçesi/uyarısı, bellek aç/kapa, gateway zaman aşımı gibi ayarlar; sekmeli düzen.
 - [ ] **3. Profesyonel ikon paketi** — Basit satır-içi SVG'ler yerine tutarlı, anlaşılır, profesyonel ikon seti (lucide tarzı); tüm butonlar.
 - [ ] **4. Gelişmiş kopyala/yapıştır** — Markdown/düz metin/Word olarak kopyala, kod bloğu kopyala, künye/atıf kopyala; yapıştırma iyileştirmeleri.

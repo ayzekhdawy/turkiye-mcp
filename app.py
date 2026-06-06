@@ -657,6 +657,7 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .skill-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .skill-tag{background:rgba(47,191,113,.13);color:var(--green);padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500}
 .msg-foot{margin-top:6px;font-size:10.5px;color:var(--faint)}
+.token-chip{font-size:11.5px;color:var(--dim);background:var(--s2);border:1px solid var(--border);padding:4px 9px;border-radius:8px;white-space:nowrap}
 
 /* ---- sistem paneli ---- */
 .panel-tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border)}
@@ -848,7 +849,10 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
   <!-- main -->
   <main class="main">
     <div class="topbar">
-      <div class="status" id="server-status"><span class="sdot"></span><span>Bağlanıyor...</span></div>
+      <div style="display:flex;align-items:center;gap:14px">
+        <div class="status" id="server-status"><span class="sdot"></span><span>Bağlanıyor...</span></div>
+        <span id="token-chip" class="token-chip" style="display:none"></span>
+      </div>
       <div class="topbar-right">
         <button class="model-chip warn" id="model-chip" onclick="openSettings()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M1 12h4M19 12h4M4.2 19.8 7 17M17 7l2.8-2.8"/></svg>
@@ -1293,6 +1297,7 @@ function renderChat() {
   const welcome = document.getElementById('welcome-screen');
   const chat = getActiveChat();
   renderAttachments();
+  updateTokenChip();
 
   if (!chat || !chat.messages || chat.messages.length === 0) {
     welcome.style.display = 'flex';
@@ -1372,8 +1377,28 @@ function renderMsgMeta(m) {
   const bits = [];
   if (m.usedModel) bits.push(escapeHtml(m.usedModel));
   if (m.fellBack) bits.push('🔁 yedek modele geçildi');
+  if (m.usage && m.usage.total) {
+    let t = '🔢 ' + fmtNum(m.usage.total) + ' token';
+    if (m.usage.prompt || m.usage.completion) t += ' (' + fmtNum(m.usage.prompt||0) + '→' + fmtNum(m.usage.completion||0) + ')';
+    bits.push(t);
+  }
+  if (m.context && m.context.window) {
+    const pct = Math.round((m.context.ratio || 0) * 100);
+    bits.push('📊 bağlam ~%' + pct + ' (' + fmtNum(m.context.window) + ')');
+  }
   if (bits.length) html += '<div class="msg-foot">' + bits.join(' · ') + '</div>';
   return html;
+}
+
+function fmtNum(n) { return (n||0).toLocaleString('tr-TR'); }
+
+function updateTokenChip() {
+  const el = document.getElementById('token-chip');
+  if (!el) return;
+  const chat = getActiveChat();
+  const t = (chat && chat.tokenTotal) || 0;
+  if (t > 0) { el.style.display = ''; el.textContent = '🔢 ' + fmtNum(t) + ' token'; }
+  else { el.style.display = 'none'; }
 }
 
 function escapeHtml(text) {
@@ -1542,8 +1567,14 @@ async function sendMessage() {
         role: 'assistant', text: data.response, sources: data.sources || [],
         skillsUsed: data.skills_used || [],
         usedModel: (data.provider && data.model) ? (data.provider + ' · ' + data.model) : '',
-        fellBack: fellBack
+        fellBack: fellBack,
+        usage: data.usage || null, context: data.context || null
       });
+      // Oturum token toplamı
+      if (data.usage && data.usage.total) {
+        chat.tokenTotal = (chat.tokenTotal || 0) + data.usage.total;
+        updateTokenChip();
+      }
     }
   } catch(e) {
     const ti = document.getElementById('typing-indicator');
@@ -1768,7 +1799,8 @@ async function loadGatewayPane(){
     const keys = Object.keys(p);
     document.getElementById('gw-metrics').innerHTML = keys.length ? keys.map(k=>{
       const m = p[k];
-      return '<div class="gw-row"><div><b>'+escapeHtml(m.name)+'</b><div class="gw-stat">'+m.calls+' çağrı · '+m.avg_latency_ms+'ms ort.</div></div>'+
+      const tok = m.tokens ? (' · ' + fmtNum(m.tokens) + ' token') : '';
+      return '<div class="gw-row"><div><b>'+escapeHtml(m.name)+'</b><div class="gw-stat">'+m.calls+' çağrı · '+m.avg_latency_ms+'ms ort.'+tok+'</div></div>'+
         '<div class="gw-stat"><span class="gw-ok">✓'+m.ok+'</span> · <span class="gw-bad">✗'+(m.fail+m.empty)+'</span></div></div>';
     }).join('') : '<div class="sk-desc">Henüz çağrı yapılmadı.</div>';
   } catch(e){ document.getElementById('gw-metrics').innerHTML = '<div class="sk-desc">Durum alınamadı.</div>'; }
@@ -3370,6 +3402,8 @@ async def chat_endpoint(request):
         "sources": list(called_tools)[:5],
         "skills_used": skills_used,
         "attempts": result.get("attempts", []),
+        "usage": result.get("usage", {}),
+        "context": result.get("context", {}),
         "remaining": remaining,
         "provider": result["provider"],
         "model": result["model"],
