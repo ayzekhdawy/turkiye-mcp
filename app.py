@@ -541,6 +541,12 @@ DASHBOARD_HTML = """<!doctype html>
   --green:#2fbf71;--amber:#e0a92e;--red:#e23b4e;
   --radius:14px;
 }
+body.light{
+  --bg:#f4f6f9;--titlebar:#e9ecf1;--s1:#ffffff;--s2:#f0f2f6;--s3:#e3e7ed;
+  --border:rgba(16,24,40,.10);--border-strong:rgba(16,24,40,.18);
+  --text:#161a20;--dim:#4b525b;--faint:#8a929c;
+  --accent:#e23b4e;--accent-hi:#c5283a;--accent-soft:rgba(226,59,78,.10);
+}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-ui,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased;overflow:hidden}
@@ -658,6 +664,7 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .skill-tag{background:rgba(47,191,113,.13);color:var(--green);padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500}
 .msg-foot{margin-top:6px;font-size:10.5px;color:var(--faint)}
 .token-chip{font-size:11.5px;color:var(--dim);background:var(--s2);border:1px solid var(--border);padding:4px 9px;border-radius:8px;white-space:nowrap}
+.token-chip.warn{color:var(--accent);border-color:rgba(226,59,78,.4);background:var(--accent-soft)}
 
 /* ---- sistem paneli ---- */
 .panel-tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border)}
@@ -919,35 +926,65 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 <!-- settings modal -->
 <div class="overlay" id="overlay">
   <div class="modal">
-    <h2 class="display">Bağlantı Ayarları</h2>
-    <div class="modal-sub">Sağlayıcınızı ve API anahtarınızı girin.</div>
-    <div class="field">
-      <label>Sağlayıcı</label>
-      <select id="llm-provider" onchange="onProviderChange()">
-        <option value="openrouter">OpenRouter</option>
-        <option value="openai">OpenAI</option>
-        <option value="anthropic">Anthropic</option>
-        <option value="gemini">Google Gemini</option>
-        <option value="ollama_cloud">Ollama Cloud</option>
-        <option value="ollama">Ollama (Yerel)</option>
-      </select>
+    <h2 class="display">Ayarlar</h2>
+    <div class="modal-sub">Bağlantı ve tercihlerinizi yönetin.</div>
+    <div class="panel-tabs">
+      <div class="panel-tab active" id="stab-conn" onclick="switchSettingsTab('conn')">🔌 Bağlantı</div>
+      <div class="panel-tab" id="stab-pref" onclick="switchSettingsTab('pref')">⚙️ Tercihler</div>
     </div>
-    <div class="field">
-      <label>Model</label>
-      <select id="llm-model"></select>
+
+    <div id="set-conn">
+      <div class="field">
+        <label>Sağlayıcı</label>
+        <select id="llm-provider" onchange="onProviderChange()">
+          <option value="openrouter">OpenRouter</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="ollama_cloud">Ollama Cloud</option>
+          <option value="ollama">Ollama (Yerel)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Model</label>
+        <select id="llm-model"></select>
+      </div>
+      <div class="field" id="api-key-field">
+        <label>API Anahtarı <span id="api-key-hint" style="font-weight:400;color:var(--faint)"></span></label>
+        <input type="password" id="llm-api-key" placeholder="sk-..." />
+      </div>
+      <div class="test-row">
+        <button class="btn-ghost" type="button" onclick="testConnection()" id="test-btn">⚡ Bağlantıyı Test Et</button>
+        <span id="test-status" class="test-status"></span>
+      </div>
+      <div class="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Anahtarınız yalnızca bu cihazda saklanır. Her sağlayıcı için ayrı anahtar hatırlanır. Ollama Cloud için <b>ollama.com</b> API anahtarınızı girin.
+      </div>
     </div>
-    <div class="field" id="api-key-field">
-      <label>API Anahtarı <span id="api-key-hint" style="font-weight:400;color:var(--faint)"></span></label>
-      <input type="password" id="llm-api-key" placeholder="sk-..." />
+
+    <div id="set-pref" style="display:none">
+      <div class="field">
+        <label>Tema</label>
+        <select id="ui-theme" onchange="applyTheme(this.value)">
+          <option value="dark">Koyu</option>
+          <option value="light">Açık</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Token bütçesi uyarısı <span style="font-weight:400;color:var(--faint)">(oturum başına)</span></label>
+        <input type="number" id="token-budget" min="0" step="1000" placeholder="örn. 50000 (0 = kapalı)" />
+      </div>
+      <div class="field">
+        <label>Gateway zaman aşımı <span style="font-weight:400;color:var(--faint)">(saniye, 0 = varsayılan)</span></label>
+        <input type="number" id="gw-timeout" min="0" max="600" step="10" placeholder="0" />
+      </div>
+      <div class="field">
+        <label>Veri dizini <span style="font-weight:400;color:var(--faint)">(salt okunur)</span></label>
+        <input type="text" id="data-dir" readonly style="opacity:.7;font-size:12px" />
+      </div>
     </div>
-    <div class="test-row">
-      <button class="btn-ghost" type="button" onclick="testConnection()" id="test-btn">⚡ Bağlantıyı Test Et</button>
-      <span id="test-status" class="test-status"></span>
-    </div>
-    <div class="note">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      Anahtarınız yalnızca bu cihazda saklanır. Her sağlayıcı için ayrı anahtar hatırlanır. Ollama Cloud için <b>ollama.com</b> API anahtarınızı girin.
-    </div>
+
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeSettings()">Vazgeç</button>
       <button class="btn-primary" onclick="saveConfig()">Kaydet</button>
@@ -1009,6 +1046,16 @@ function keyFor(p){ return apiKeys[p] || ''; }
 let fallbacks = [];
 try { fallbacks = JSON.parse(localStorage.getItem('llm-fallbacks') || '[]'); } catch(e) { fallbacks = []; }
 function getFallbacks(){ return fallbacks; }
+// Tercihler
+let currentTheme = localStorage.getItem('ui-theme') || 'dark';
+let tokenBudget = parseInt(localStorage.getItem('token-budget') || '0', 10) || 0;
+let gwTimeout = parseInt(localStorage.getItem('gw-timeout') || '0', 10) || 0;
+let budgetWarned = false;
+function applyTheme(v){
+  currentTheme = v || 'dark';
+  document.body.classList.toggle('light', currentTheme === 'light');
+  localStorage.setItem('ui-theme', currentTheme);
+}
 let isSending = false;
 let saveTimer = null;
 
@@ -1397,8 +1444,13 @@ function updateTokenChip() {
   if (!el) return;
   const chat = getActiveChat();
   const t = (chat && chat.tokenTotal) || 0;
-  if (t > 0) { el.style.display = ''; el.textContent = '🔢 ' + fmtNum(t) + ' token'; }
-  else { el.style.display = 'none'; }
+  if (t > 0) {
+    el.style.display = '';
+    const over = tokenBudget > 0 && t >= tokenBudget;
+    el.textContent = '🔢 ' + fmtNum(t) + ' token' + (tokenBudget > 0 ? (' / ' + fmtNum(tokenBudget)) : '');
+    el.classList.toggle('warn', over);
+    if (over && !budgetWarned) { budgetWarned = true; toast('⚠️ Token bütçesi aşıldı (' + fmtNum(t) + ')', true); }
+  } else { el.style.display = 'none'; el.classList.remove('warn'); }
 }
 
 function escapeHtml(text) {
@@ -1551,7 +1603,7 @@ async function sendMessage() {
     const res = await fetch('/api/chat', { method: 'POST', headers, signal: currentAbort.signal, body: JSON.stringify({
       message: msg, provider, api_key: apiKey, model,
       history, document_context: documentContext, doc_type: docType, related: related,
-      fallbacks: getFallbacks(), api_keys: apiKeys
+      fallbacks: getFallbacks(), api_keys: apiKeys, timeout_override: gwTimeout || 0
     }) });
     const data = await res.json();
 
@@ -1670,12 +1722,26 @@ mainArea.addEventListener('drop', e => {
 // ===== Settings =====
 function openSettings() { document.getElementById('overlay').classList.add('open'); loadConfig(); }
 function closeSettings() { document.getElementById('overlay').classList.remove('open'); document.getElementById('test-status').textContent=''; }
+function switchSettingsTab(t){
+  document.getElementById('stab-conn').classList.toggle('active', t==='conn');
+  document.getElementById('stab-pref').classList.toggle('active', t==='pref');
+  document.getElementById('set-conn').style.display = t==='conn' ? '' : 'none';
+  document.getElementById('set-pref').style.display = t==='pref' ? '' : 'none';
+}
+
 function loadConfig() {
   const prov = document.getElementById('llm-provider');
   prov.value = currentProvider;
   onProviderChange();
   if (currentModel) document.getElementById('llm-model').value = currentModel;
   updateModelChip();
+  // Tercihler
+  document.getElementById('ui-theme').value = currentTheme;
+  document.getElementById('token-budget').value = tokenBudget || '';
+  document.getElementById('gw-timeout').value = gwTimeout || '';
+  fetch('/api/workspace').then(r=>r.json()).then(d=>{
+    const el = document.getElementById('data-dir'); if (el) el.value = d.dataDir || '—';
+  }).catch(()=>{});
 }
 
 async function loadOllamaModels(selected) {
@@ -1724,6 +1790,15 @@ async function saveConfig() {
   localStorage.setItem('llm-provider', currentProvider);
   localStorage.setItem('llm-model', currentModel);
   localStorage.setItem('llm-keys', JSON.stringify(apiKeys));
+  // Tercihler
+  currentTheme = document.getElementById('ui-theme').value;
+  tokenBudget = parseInt(document.getElementById('token-budget').value || '0', 10) || 0;
+  gwTimeout = parseInt(document.getElementById('gw-timeout').value || '0', 10) || 0;
+  localStorage.setItem('ui-theme', currentTheme);
+  localStorage.setItem('token-budget', String(tokenBudget));
+  localStorage.setItem('gw-timeout', String(gwTimeout));
+  applyTheme(currentTheme);
+  budgetWarned = false;
   // keyring (yerel mod) — best effort
   try {
     await fetch('/api/chat/configure', {
@@ -1887,6 +1962,7 @@ loadModules();
 
 // ===== Init =====
 async function init() {
+  applyTheme(currentTheme);
   loadConfig();
   setupTree();
   await bootstrapWorkspace();   // sunucudan klasör + oturumları çek
@@ -3384,7 +3460,14 @@ async def chat_endpoint(request):
     if OPENROUTER_API_KEY and "openrouter" not in api_keys_map:
         api_keys_map["openrouter"] = OPENROUTER_API_KEY
 
+    try:
+        timeout_override = int(body.get("timeout_override") or 0)
+    except Exception:
+        timeout_override = 0
+
     def _timeout_for(pid):
+        if timeout_override and 10 <= timeout_override <= 600:
+            return timeout_override
         return 300 if pid == "ollama" else 120
 
     result = await GATEWAY.complete(

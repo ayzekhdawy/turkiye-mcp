@@ -1,12 +1,14 @@
-## 🇹🇷 Türkiye MCP v1.6.2 — Token & Bağlam Kullanımı
+## 🇹🇷 Türkiye MCP v1.6.3 — Gelişmiş Ayarlar
 
-Artık her yanıtın **token tüketimini** ve modelin **bağlam penceresi doluluğunu** görebilirsiniz.
+Ayarlar paneli sekmeli ve özelleştirilebilir hale geldi.
 
-### 🔢 Token & Bağlam Takibi
-- Her asistan yanıtının altında: **token sayısı** (giriş→çıkış) ve **bağlam doluluğu %** (modelin tahmini bağlam penceresine göre).
-- Üst barda **oturum token toplamı** rozeti.
-- **Sistem → Gateway** sekmesinde sağlayıcı başına toplam token.
-- Sağlayıcı `usage` döndürmezse giriş token'ı metinden tahmin edilir; model bağlam penceresi model adından kestirilir (ör. minimax/claude 200K, gpt-oss/llama 128K, gemma 8K).
+### ⚙️ Sekmeli Ayarlar
+- **🔌 Bağlantı:** sağlayıcı, model, API anahtarı, bağlantı testi (önceki düzen).
+- **⚙️ Tercihler (yeni):**
+  - **Tema** — Koyu / **Açık** (anında uygulanır, hatırlanır)
+  - **Token bütçesi uyarısı** — oturum token toplamı aşılınca üst bardaki rozet kırmızıya döner + uyarı
+  - **Gateway zaman aşımı** — model yanıt süresi sınırını (sn) elle ayarlama (0 = varsayılan)
+  - **Veri dizini** — çalışma alanı verisinin saklandığı klasör (salt okunur)
 
 ### 📥 İndirme
 - **TurkiyeMCP.exe** — Windows 10/11 (64-bit), kurulumsuz.
