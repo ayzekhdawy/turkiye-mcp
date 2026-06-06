@@ -1,0 +1,28 @@
+# 🗺️ Türkiye MCP — Geliştirme Yol Haritası
+
+> Bu dosya, projenin sıradaki geliştirmelerini ve durumlarını izler. Her oturum/otomatik
+> çalıştırma buradan kaldığı yeri öğrenir. Bir madde tamamlandığında durumu `[x]` yapılır
+> ve kısa not eklenir. Her artış ayrı commit + (gerekirse) sürüm etiketiyle yayınlanır.
+
+## Çalışma kuralı (her oturum)
+1. Bu dosyadaki **ilk `[ ]` (yapılmamış)** maddeyi seç.
+2. Tek bir tutarlı artış olarak uygula; `python -c "import app"` + gömülü JS için `node --check` ile doğrula.
+3. Mümkünse `minimax-m2.7:cloud` ile hızlı test et (yerel CPU yavaş).
+4. Commit + push. Maddeyi `[x]` işaretle, kısa sonuç notu ekle.
+5. Kullanıcı verisini/örnek belgeleri repoya ASLA ekleme. Atıf (OpenClaw/Anthropic vb.) yazma.
+
+## Sıradaki maddeler (öncelik sırasıyla)
+
+- [ ] **1. Token & bağlam kullanımı takibi** — Gateway yanıttaki `usage` (prompt/completion/total token) verisini yakalasın; model bağlam penceresi tahmini + kalan oran UI'de gösterilsin. Sohbet başına ve sağlayıcı başına token toplamı.
+- [ ] **2. Ayarlar paneli geliştirme** — Tema, dil, veri dizini, token bütçesi/uyarısı, bellek aç/kapa, gateway zaman aşımı gibi ayarlar; sekmeli düzen.
+- [ ] **3. Profesyonel ikon paketi** — Basit satır-içi SVG'ler yerine tutarlı, anlaşılır, profesyonel ikon seti (lucide tarzı); tüm butonlar.
+- [ ] **4. Gelişmiş kopyala/yapıştır** — Markdown/düz metin/Word olarak kopyala, kod bloğu kopyala, künye/atıf kopyala; yapıştırma iyileştirmeleri.
+- [ ] **5. Bellek (memory) özelliği** — Kullanıcı başına kalıcı bellek; tercih/olguları saklar, bağlama enjekte eder; "kullanıcısını tanır, ne yapacağını hafızasından kontrol eder". `/api/memory` CRUD + UI.
+- [ ] **6. Sohbet içinden skill düzenleme** — Kullanıcı sohbette "yeni skill ekle / şu skill'i düzenle" deyince SKILL.md yazılır/güncellenir (kendini geliştiren skills). Onay akışıyla.
+- [ ] **7. Gateway server özelleştirme** — Sağlayıcı base URL/zaman aşımı/model zinciri sunucu tarafında saklansın; `/api/gateway/config` GET+POST; UI'den düzenlenebilsin.
+- [ ] **8. EXE hızlı açılış + kalıcı server** — Modülleri tembel/asenkron yükle, açılış süresini kısalt; EXE doğrudan server açsın, kapatılıp açıldığında çalışan server'a hızlı bağlansın (splash + sağlık beklemesi iyileştir).
+- [ ] **9. macOS kolay kurulum** — macOS için kurulum betiği (.command) ve/veya PyInstaller mac spec'i; kullanıcıların macOS'te kurup kullanabilmesi.
+- [ ] **10. Bilgisayar/yetki düzeyi araçlar (dikkatli)** — Kullanıcı izniyle yerel araç kullanımı; her kullanıcı için kendini geliştirebilir. Güvenlik onayı zorunlu; en sona, küçük ve denetimli adımlarla.
+
+## Tamamlananlar (özet)
+- Çalışma alanı (klasör/oturum/dosya kalıcılığı), Ollama Cloud + dinamik modeller, belge zekâsı + çapraz hafıza, avukat personası + skills (9), durdurma butonu, LLM Gateway + failover, araç kataloğu, gerçek emsal karar metni çekme, ticari-olmayan lisans, README ekran galerisi.
