@@ -13,6 +13,14 @@ ASGI uygulaması (Starlette + FastMCP), pywebview ile masaüstü penceresi.
 - **JS ile kurulan string'lere apostrof/tek tırnak literal koyma** — inline handler argümanları değişken birleştirme olmalı (`fn(\'' + id + '\')`), literal değil. Klasör/oturum ağacı `data-*` attribute + delegated listener kullanır (`setupTree()`).
 - **gpt-oss / reasoning modelleri için `reasoning_effort: "low"`** — Ollama'da gpt-oss varsayılanda tüm token bütçesini gizli düşünceye harcayıp `content`'i BOŞ döndürür. Ollama sağlayıcılarında `reasoning_effort=low` gönderilir; ayrıca content boşsa `reasoning` alanına fallback yapılır.
 
+## 🆕 v1.6.0 — Gateway, Genişletilmiş Skills & Araç Kataloğu
+- **gateway.py (LLMGateway)** — tüm LLM çağrıları buradan geçer. `complete(system, history, message, chain, api_keys, timeout_for)` model zincirini sırayla dener; hata/timeout/connect/**boş yanıt** → sonraki modele failover. Sağlayıcı başına metrik. `chat_endpoint` artık inline httpx yerine `GATEWAY.complete` çağırır; body'den `fallbacks` + `api_keys` alır; yanıtta `attempts` + `skills_used` döner.
+- **reasoning max_tokens (kritik):** reasoning modelleri (`is_reasoning_model`) için `max_tokens=4096` (yoksa büyük sistem promptunda reasoning bütçeyi tüketip content BOŞ döner). reasoning_effort=low yine yalnızca reasoning modellerine; 400'de parametresiz retry.
+- **Skills genişletildi (9):** + icra-iflas, kira-gayrimenkul, vergi-uyusmazligi, is-hukuku, sozlesme-inceleme. `set_enabled`/`_load_disabled` ile aç-kapa (skills_state.json, veri dizininde). `/api/skills/toggle`. Yanıtta `skills_used` → UI'de ⚡ etiket.
+- **Araç kataloğu:** `TOOLS_CATALOG` + `/api/tools` (kategori/aktiflik). `/api/gateway/status` metrik.
+- **UI Sistem paneli:** topbar ▦ → 3 sekme (Gateway+failover config, Skills toggle, Tools katalog). Inline handler'larda string yerine **index** kullanılır (tek tırnak tuzağı).
+- **Test notu:** yerel CPU yavaş; testlerde `minimax-m2.7:cloud` (ollama cloud-proxy, ~5sn) kullan. Hukuk sorgularının yavaşlığı canlı araç çağrılarından (search_bedesten/emsal dış API) kaynaklı, model değil.
+
 ## 🆕 v1.5.0 — Avukat Modu (Belge Zekâsı, Skills, Çapraz Hafıza, Durdurma)
 - **skills.py + skills/<ad>/SKILL.md** — Anthropic skill formatında oyun kitapları. `select_skills(message, doc_type)` bağlama göre seçer, `build_skills_prompt` sistem promptuna enjekte eder. EXE'de spec `datas`'a `skills/` eklenir.
 - **Belge zekâsı** — `_classify_document(text)` belge türü/taraf/konu çıkarır (sezgisel, LLM gerektirmez). Upload yanıtında `understanding` döner.

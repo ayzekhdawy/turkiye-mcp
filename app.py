@@ -42,6 +42,13 @@ except Exception:
     skills_engine = None
     SKILLS_AVAILABLE = False
 
+try:
+    from gateway import LLMGateway  # Merkezi LLM yönlendirme + failover
+    GATEWAY_AVAILABLE = True
+except Exception:
+    LLMGateway = None
+    GATEWAY_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -647,6 +654,38 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 
 .sources{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
 .source-tag{background:var(--accent-soft);color:var(--accent-hi);padding:2px 8px;border-radius:9999px;font-size:11px}
+.skill-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.skill-tag{background:rgba(47,191,113,.13);color:var(--green);padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500}
+.msg-foot{margin-top:6px;font-size:10.5px;color:var(--faint)}
+
+/* ---- sistem paneli ---- */
+.panel-tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.panel-tab{padding:8px 14px;font-size:13px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.panel-tab.active{color:var(--text);border-bottom-color:var(--accent)}
+.panel-body{max-height:54vh;overflow-y:auto}
+.panel-body::-webkit-scrollbar{width:5px}.panel-body::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
+.sk-row{display:flex;align-items:flex-start;gap:10px;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);margin-bottom:8px}
+.sk-row .sk-main{flex:1;min-width:0}
+.sk-row .sk-name{font-weight:600;font-size:13px}
+.sk-row .sk-desc{font-size:11.5px;color:var(--faint);margin-top:2px;line-height:1.4}
+.sw{position:relative;width:38px;height:21px;flex:0 0 auto;cursor:pointer}
+.sw input{display:none}
+.sw .track{position:absolute;inset:0;background:var(--s3);border-radius:11px;transition:.15s}
+.sw .knob{position:absolute;top:3px;left:3px;width:15px;height:15px;background:var(--faint);border-radius:50%;transition:.15s}
+.sw input:checked + .track{background:var(--accent-soft)}
+.sw input:checked + .track .knob{transform:translateX(17px);background:var(--accent)}
+.tool-cat{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin:14px 0 6px}
+.tool-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;font-size:12.5px}
+.tool-row:hover{background:var(--s2)}
+.tool-row .tdot{width:7px;height:7px;border-radius:50%;background:var(--green);flex:0 0 auto}
+.tool-row .tdot.off{background:var(--faint)}
+.tool-row code{font-size:11px;color:var(--accent-hi)}
+.tool-row .tdesc{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gw-row{display:flex;align-items:center;justify-content:space-between;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);margin-bottom:8px;font-size:12.5px}
+.gw-stat{font-variant-numeric:tabular-nums;color:var(--dim)}
+.gw-ok{color:var(--green)}.gw-bad{color:var(--accent)}
+.fallback-box{display:flex;gap:8px}
+.fallback-box select{flex:1}
 
 .typing-indicator{display:flex;gap:4px;padding:12px 16px}
 .typing-indicator span{width:8px;height:8px;background:var(--faint);border-radius:50%;animation:blink 1.4s infinite both}
@@ -815,6 +854,9 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M1 12h4M19 12h4M4.2 19.8 7 17M17 7l2.8-2.8"/></svg>
           <span id="model-chip-text">API anahtarı gerekli</span>
         </button>
+        <button class="icon-btn" title="Sistem (Gateway · Skills · Araçlar)" onclick="openSystemPanel()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </button>
         <button class="icon-btn" title="Ayarlar" onclick="openSettings()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
@@ -909,6 +951,27 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
   </div>
 </div>
 
+<!-- system panel modal -->
+<div class="overlay" id="sys-overlay">
+  <div class="modal" style="width:560px">
+    <h2 class="display">Sistem</h2>
+    <div class="modal-sub">Gateway durumu, uzmanlık yönergeleri (skills) ve araçlar.</div>
+    <div class="panel-tabs">
+      <div class="panel-tab active" id="tab-gateway" onclick="switchPanelTab('gateway')">🔀 Gateway</div>
+      <div class="panel-tab" id="tab-skills" onclick="switchPanelTab('skills')">⚡ Skills</div>
+      <div class="panel-tab" id="tab-tools" onclick="switchPanelTab('tools')">🧰 Araçlar</div>
+    </div>
+    <div class="panel-body">
+      <div id="pane-gateway"></div>
+      <div id="pane-skills" style="display:none"></div>
+      <div id="pane-tools" style="display:none"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:18px">
+      <button class="btn-primary" onclick="closeSystemPanel()">Kapat</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ===== State =====
 const PROVIDERS = {
@@ -938,6 +1001,10 @@ if (localStorage.getItem('llm-api-key') && !apiKeys[currentProvider]) {
   apiKeys[currentProvider] = localStorage.getItem('llm-api-key');
 }
 function keyFor(p){ return apiKeys[p] || ''; }
+// Failover: yedek model zinciri [{provider, model}]
+let fallbacks = [];
+try { fallbacks = JSON.parse(localStorage.getItem('llm-fallbacks') || '[]'); } catch(e) { fallbacks = []; }
+function getFallbacks(){ return fallbacks; }
 let isSending = false;
 let saveTimer = null;
 
@@ -1241,7 +1308,7 @@ function renderChat() {
     div.className = 'msg ' + m.role;
     if (m.role === 'assistant') {
       div.innerHTML = '<div class="msg-bubble"><div class="msg-content">' + renderMarkdown(m.text) + '</div>' +
-        (m.sources ? renderSources(m.sources) : '') +
+        (m.sources ? renderSources(m.sources) : '') + renderMsgMeta(m) +
         '<div class="msg-actions"><button onclick="copyMessage(this)" title="Kopyala">📋</button><button onclick="exportWord(this)" title="Word olarak indir">📄</button></div></div>';
     } else {
       div.innerHTML = '<div class="msg-bubble">' + escapeHtml(m.text) + (m.sources ? renderSources(m.sources) : '') + '</div>';
@@ -1295,6 +1362,18 @@ function buildDocumentContext() {
 function renderSources(sources) {
   if (!sources || sources.length === 0) return '';
   return '<div class="sources">' + sources.map(s => '<span class="source-tag">' + s + '</span>').join('') + '</div>';
+}
+
+function renderMsgMeta(m) {
+  let html = '';
+  if (m.skillsUsed && m.skillsUsed.length) {
+    html += '<div class="skill-tags">' + m.skillsUsed.map(s => '<span class="skill-tag">⚡ ' + escapeHtml(s) + '</span>').join('') + '</div>';
+  }
+  const bits = [];
+  if (m.usedModel) bits.push(escapeHtml(m.usedModel));
+  if (m.fellBack) bits.push('🔁 yedek modele geçildi');
+  if (bits.length) html += '<div class="msg-foot">' + bits.join(' · ') + '</div>';
+  return html;
 }
 
 function escapeHtml(text) {
@@ -1446,7 +1525,8 @@ async function sendMessage() {
 
     const res = await fetch('/api/chat', { method: 'POST', headers, signal: currentAbort.signal, body: JSON.stringify({
       message: msg, provider, api_key: apiKey, model,
-      history, document_context: documentContext, doc_type: docType, related: related
+      history, document_context: documentContext, doc_type: docType, related: related,
+      fallbacks: getFallbacks(), api_keys: apiKeys
     }) });
     const data = await res.json();
 
@@ -1457,7 +1537,13 @@ async function sendMessage() {
       chat.messages.push({ role: 'system', text: 'Hata: ' + data.error });
       if (data.needs_key) toast('API anahtarı gerekli — Ayarlar', true);
     } else {
-      chat.messages.push({ role: 'assistant', text: data.response, sources: data.sources || [] });
+      const fellBack = (data.attempts || []).filter(a => a.status !== 'ok').length > 0;
+      chat.messages.push({
+        role: 'assistant', text: data.response, sources: data.sources || [],
+        skillsUsed: data.skills_used || [],
+        usedModel: (data.provider && data.model) ? (data.provider + ' · ' + data.model) : '',
+        fellBack: fellBack
+      });
     }
   } catch(e) {
     const ti = document.getElementById('typing-indicator');
@@ -1645,6 +1731,103 @@ function updateModelChip() {
   const hasKey = !prov.needs_key || keyFor(currentProvider);
   chip.className = 'model-chip' + (hasKey ? '' : ' warn');
   chipText.textContent = hasKey ? (prov.name + ' · ' + (currentModel || prov.default_model)) : 'API anahtarı gerekli';
+}
+
+// ===== System Panel (Gateway · Skills · Tools) =====
+let skillList = [];
+function openSystemPanel(){ document.getElementById('sys-overlay').classList.add('open'); switchPanelTab('gateway'); }
+function closeSystemPanel(){ document.getElementById('sys-overlay').classList.remove('open'); }
+function switchPanelTab(t){
+  ['gateway','skills','tools'].forEach(x=>{
+    document.getElementById('tab-'+x).classList.toggle('active', x===t);
+    document.getElementById('pane-'+x).style.display = (x===t) ? '' : 'none';
+  });
+  if (t==='gateway') loadGatewayPane();
+  else if (t==='skills') loadSkillsPane();
+  else loadToolsPane();
+}
+
+async function loadGatewayPane(){
+  const pane = document.getElementById('pane-gateway');
+  pane.innerHTML =
+    '<div class="field"><label>Yedek Model (Failover)</label>' +
+    '<div class="fallback-box"><select id="fb-provider" onchange="onFbProviderChange()"></select>' +
+    '<select id="fb-model"></select></div>' +
+    '<div style="display:flex;gap:8px;margin-top:8px">' +
+    '<button class="btn-ghost" onclick="addFallback()">+ Yedek Ekle</button>' +
+    '<button class="btn-ghost" onclick="clearFallbacks()">Temizle</button></div>' +
+    '<div id="fb-list" style="margin-top:10px"></div></div>' +
+    '<div class="tool-cat">Sağlayıcı Metrikleri</div><div id="gw-metrics">Yükleniyor…</div>';
+  const fps = document.getElementById('fb-provider');
+  fps.innerHTML = Object.keys(PROVIDERS).map(k=>'<option value="'+k+'">'+PROVIDERS[k].name+'</option>').join('');
+  onFbProviderChange();
+  renderFbList();
+  try {
+    const data = await (await fetch('/api/gateway/status')).json();
+    const p = data.providers || {};
+    const keys = Object.keys(p);
+    document.getElementById('gw-metrics').innerHTML = keys.length ? keys.map(k=>{
+      const m = p[k];
+      return '<div class="gw-row"><div><b>'+escapeHtml(m.name)+'</b><div class="gw-stat">'+m.calls+' çağrı · '+m.avg_latency_ms+'ms ort.</div></div>'+
+        '<div class="gw-stat"><span class="gw-ok">✓'+m.ok+'</span> · <span class="gw-bad">✗'+(m.fail+m.empty)+'</span></div></div>';
+    }).join('') : '<div class="sk-desc">Henüz çağrı yapılmadı.</div>';
+  } catch(e){ document.getElementById('gw-metrics').innerHTML = '<div class="sk-desc">Durum alınamadı.</div>'; }
+}
+function onFbProviderChange(){
+  const prov = document.getElementById('fb-provider').value;
+  document.getElementById('fb-model').innerHTML = PROVIDERS[prov].models.map(m=>'<option value="'+m+'">'+m+'</option>').join('');
+}
+function addFallback(){
+  const prov = document.getElementById('fb-provider').value;
+  const model = document.getElementById('fb-model').value;
+  fallbacks.push({provider:prov, model:model});
+  localStorage.setItem('llm-fallbacks', JSON.stringify(fallbacks));
+  renderFbList(); toast('Yedek model eklendi');
+}
+function removeFallback(i){ fallbacks.splice(i,1); localStorage.setItem('llm-fallbacks', JSON.stringify(fallbacks)); renderFbList(); }
+function clearFallbacks(){ fallbacks=[]; localStorage.setItem('llm-fallbacks','[]'); renderFbList(); }
+function renderFbList(){
+  const el = document.getElementById('fb-list'); if(!el) return;
+  if(!fallbacks.length){ el.innerHTML='<div class="sk-desc">Yedek model yok. Birincil model hata/boş yanıt verirse sırayla denenir.</div>'; return; }
+  el.innerHTML = fallbacks.map((f,i)=>{
+    const nm = (PROVIDERS[f.provider] ? PROVIDERS[f.provider].name : f.provider) + ' · ' + f.model;
+    return '<div class="tool-row"><span class="tdot"></span><code>'+escapeHtml(nm)+'</code><span style="margin-left:auto;cursor:pointer;color:var(--faint)" onclick="removeFallback('+i+')">×</span></div>';
+  }).join('');
+}
+
+async function loadSkillsPane(){
+  const pane = document.getElementById('pane-skills');
+  pane.innerHTML = 'Yükleniyor…';
+  try {
+    const data = await (await fetch('/api/skills')).json();
+    skillList = data.skills || [];
+    pane.innerHTML = skillList.map((s,i)=>
+      '<div class="sk-row"><div class="sk-main"><div class="sk-name">'+escapeHtml(s.name)+'</div>'+
+      '<div class="sk-desc">'+escapeHtml(s.description)+'</div></div>'+
+      '<label class="sw"><input type="checkbox" '+(s.enabled?'checked':'')+' onchange="toggleSkill('+i+', this.checked)"><span class="track"><span class="knob"></span></span></label></div>'
+    ).join('') || '<div class="sk-desc">Skill bulunamadı.</div>';
+  } catch(e){ pane.innerHTML='<div class="sk-desc">Skills alınamadı.</div>'; }
+}
+async function toggleSkill(i, enabled){
+  const s = skillList[i]; if(!s) return;
+  s.enabled = enabled;
+  try { await fetch('/api/skills/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:s.name, enabled})}); toast(enabled?('⚡ '+s.name+' açıldı'):(s.name+' kapatıldı')); } catch(e){}
+}
+
+async function loadToolsPane(){
+  const pane = document.getElementById('pane-tools');
+  pane.innerHTML = 'Yükleniyor…';
+  try {
+    const data = await (await fetch('/api/tools')).json();
+    const byCat = {};
+    (data.tools||[]).forEach(t=>{ (byCat[t.category]=byCat[t.category]||[]).push(t); });
+    let html = '<div class="sk-desc">'+data.available+' / '+data.total+' araç aktif</div>';
+    Object.keys(byCat).forEach(cat=>{
+      html += '<div class="tool-cat">'+escapeHtml(cat)+'</div>';
+      html += byCat[cat].map(t=>'<div class="tool-row"><span class="tdot'+(t.available?'':' off')+'"></span><code>'+escapeHtml(t.name)+'</code><span class="tdesc">'+escapeHtml(t.description)+'</span></div>').join('');
+    });
+    pane.innerHTML = html;
+  } catch(e){ pane.innerHTML='<div class="sk-desc">Araçlar alınamadı.</div>'; }
 }
 
 // ===== Modules =====
@@ -1868,6 +2051,10 @@ LLM_PROVIDERS = {
         "needs_key": False,
     },
 }
+
+# Merkezi LLM Gateway (failover + metrik) — LLM_PROVIDERS üzerinden çalışır
+GATEWAY = LLMGateway(LLM_PROVIDERS) if GATEWAY_AVAILABLE else None
+
 
 # Reasoning (düşünme) destekleyen model aileleri — reasoning_effort yalnızca bunlara gönderilir
 _REASONING_MODEL_HINTS = (
@@ -2766,6 +2953,84 @@ async def skills_endpoint(request):
         return JSONResponse({"skills": [], "error": str(e)})
 
 
+async def skills_toggle_endpoint(request):
+    """Bir skill'i aç/kapat. Body: {"name": "...", "enabled": true|false}"""
+    if not SKILLS_AVAILABLE:
+        return JSONResponse({"error": "Skills yüklü değil."}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    name = body.get("name", "")
+    if not name:
+        return JSONResponse({"error": "name gerekli."}, status_code=400)
+    skills_engine.set_enabled(name, bool(body.get("enabled", True)))
+    return JSONResponse({"status": "ok", "skills": skills_engine.list_skill_meta()})
+
+
+async def gateway_status_endpoint(request):
+    """LLM Gateway metrikleri (sağlayıcı başına başarı/başarısızlık/gecikme)."""
+    if not GATEWAY_AVAILABLE or GATEWAY is None:
+        return JSONResponse({"available": False, "providers": {}})
+    return JSONResponse({"available": True, "providers": GATEWAY.status()})
+
+
+# Araç kataloğu — UI'de araçları kategorize göstermek için
+TOOLS_CATALOG = [
+    ("Hukuk", "search_bedesten_unified", "Yargıtay/Danıştay/yerel/istinaf birleşik karar arama"),
+    ("Hukuk", "get_bedesten_document", "Karar tam metnini getirir"),
+    ("Hukuk", "search_anayasa_unified", "Anayasa Mahkemesi kararları"),
+    ("Hukuk", "search_emsal", "EMSAL (UYAP) örnek kararlar"),
+    ("Hukuk", "search_kik_v2_decisions", "Kamu İhale Kurumu kararları"),
+    ("Hukuk", "search_rekabet_kurumu", "Rekabet Kurumu kararları"),
+    ("Hukuk", "search_sayistay_unified", "Sayıştay kararları"),
+    ("Hukuk", "search_kvkk_decisions", "KVKK kararları"),
+    ("Hukuk", "search_bddk_decisions", "BDDK kararları"),
+    ("Hukuk", "search_sigorta_tahkim", "Sigorta Tahkim kararları"),
+    ("Hukuk", "search_uyusmazlik", "Uyuşmazlık Mahkemesi kararları"),
+    ("Mevzuat", "search_resmi_gazete", "Resmi Gazete belge arama"),
+    ("Mevzuat", "get_daily_bulletin", "Günlük Resmi Gazete bülteni"),
+    ("Mevzuat", "get_recent_mali_changes", "Son N günün mali belgeleri"),
+    ("Mali", "search_gib_sirkuler", "GİB sirküler arama"),
+    ("Mali", "get_tax_calendar", "Vergi takvimi"),
+    ("Mali", "check_efatura_taxpayer", "VKN/TCKN e-Fatura mükellef sorgu"),
+    ("Mali", "get_asgari_ucret", "Asgari ücret bilgileri"),
+    ("Mali", "get_prim_matrahi", "SGK prim matrahı ve oranları"),
+    ("Mali", "get_turmob_pratik_bilgiler", "TÜRMOB pratik bilgiler"),
+    ("Mali", "get_ismmmo_pratik_bilgiler", "İSMMMO pratik bilgiler"),
+    ("İhale", "search_tenders", "Kamu ihaleleri (EKAP v2)"),
+    ("İhale", "get_recent_tenders", "Son N günün ihaleleri"),
+    ("İhale", "search_ilan_ads", "Resmi ilanlar (ilan.gov.tr)"),
+    ("Piyasa", "get_bist_stock", "BIST hisse verileri"),
+    ("Piyasa", "get_fx_rates", "Döviz kurları"),
+    ("Piyasa", "get_crypto", "Kripto para verileri"),
+    ("UYAP", "parse_uyap_document", "UYAP EYP/UDF belge çözümleme"),
+    ("UYAP", "get_uyap_parties", "UYAP belgesindeki taraflar"),
+    ("UYAP", "get_uyap_references", "UYAP belgesindeki referanslar"),
+    ("Sistem", "check_health", "Tüm modüllerin durumu"),
+]
+
+
+async def tools_catalog_endpoint(request):
+    """Mevcut MCP araçlarını kategori bazında listeler (yalnızca aktif modüller)."""
+    routed = set(TOOL_ROUTING.values())
+    items = []
+    for cat, name, desc in TOOLS_CATALOG:
+        available = name in globals() and callable(globals().get(name))
+        items.append({
+            "category": cat, "name": name, "description": desc,
+            "available": available, "auto_routed": name in routed,
+        })
+    cats = {}
+    for it in items:
+        cats.setdefault(it["category"], 0)
+        if it["available"]:
+            cats[it["category"]] += 1
+    return JSONResponse({"tools": items, "total": len(items),
+                         "available": sum(1 for i in items if i["available"]),
+                         "categories": cats})
+
+
 async def test_llm_endpoint(request):
     """LLM sağlayıcı bağlantısını/anahtarını hızlıca test eder.
 
@@ -2923,10 +3188,12 @@ async def chat_endpoint(request):
 
     # Bağlama göre uzmanlık yönergelerini (skills) seç
     skills_prompt = ""
+    skills_used = []
     if SKILLS_AVAILABLE:
         try:
             selected = skills_engine.select_skills(message, doc_type)
             skills_prompt = skills_engine.build_skills_prompt(selected)
+            skills_used = [s["name"] for s in selected]
         except Exception:
             skills_prompt = ""
 
@@ -2963,84 +3230,44 @@ async def chat_endpoint(request):
     if tool_context:
         full_system += f"\n\nMCP araç sonuçları:\n\n{tool_context}"
 
-    # LLM'e gönder
-    messages = [{"role": "system", "content": full_system}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": message})
+    # ---- Gateway üzerinden tamamlama (failover zinciri) ----
+    # Birincil model + kullanıcının tanımladığı yedek modeller (failover)
+    chain = [{"provider": provider_id, "model": model}]
+    for fb in (body.get("fallbacks") or [])[:4]:
+        p = (fb.get("provider") or "").lower()
+        if p in LLM_PROVIDERS:
+            chain.append({"provider": p, "model": fb.get("model") or LLM_PROVIDERS[p]["default_model"]})
 
-    # Yerel Ollama yavaş donanımda uzun sürebilir → daha uzun timeout
-    llm_timeout = 300 if provider_id == "ollama" else 120
-    try:
-        async with httpx.AsyncClient(timeout=llm_timeout) as client:
-            if provider_config.get("is_anthropic"):
-                # Anthropic API formatı farklı
-                resp = await client.post(
-                    provider_config["url"],
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "max_tokens": 2048,
-                        "system": full_system,
-                        "messages": history + [{"role": "user", "content": message}],
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                reply = data.get("content", [{}])[0].get("text", "Yanit alinamadi.")
-            else:
-                # OpenAI-uyumlu API formatı (OpenRouter, OpenAI, Gemini, Ollama, Ollama Cloud)
-                headers = {"Content-Type": "application/json"}
-                if api_key:
-                    headers["Authorization"] = f"Bearer {api_key}"
-                if provider_id == "openrouter":
-                    headers["HTTP-Referer"] = "https://turkiye-mcp.up.railway.app"
+    # Sağlayıcı başına anahtarlar (birincil header + body'deki api_keys haritası)
+    api_keys_map = {provider_id: api_key}
+    for k, v in (body.get("api_keys") or {}).items():
+        if v:
+            api_keys_map[(k or "").lower()] = v
+    if OPENROUTER_API_KEY and "openrouter" not in api_keys_map:
+        api_keys_map["openrouter"] = OPENROUTER_API_KEY
 
-                payload = {"model": model, "messages": messages, "max_tokens": 2048}
-                # gpt-oss gibi reasoning modelleri varsayılanda tüm bütçeyi
-                # gizli düşünceye harcayıp content'i boş bırakabiliyor.
-                # reasoning_effort=low → nihai yanıtı üretmelerini sağlar.
-                # NOT: Bu parametre yalnızca reasoning destekleyen modellere gönderilir;
-                # gemma/llama gibi modeller 400 döndürür.
-                use_reasoning = provider_id in ("ollama", "ollama_cloud") and _is_reasoning_model(model)
-                if use_reasoning:
-                    payload["reasoning_effort"] = "low"
+    def _timeout_for(pid):
+        return 300 if pid == "ollama" else 120
 
-                resp = await client.post(provider_config["url"], headers=headers, json=payload)
-                # reasoning_effort'u kabul etmeyen model 400 dönerse parametresiz tekrar dene
-                if resp.status_code == 400 and "reasoning_effort" in payload:
-                    payload.pop("reasoning_effort", None)
-                    resp = await client.post(provider_config["url"], headers=headers, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                msg = data.get("choices", [{}])[0].get("message", {}) or {}
-                # content boşsa reasoning alanına düş (bazı modeller yanıtı oraya koyar)
-                reply = (msg.get("content") or msg.get("reasoning")
-                         or msg.get("reasoning_content") or "").strip()
-                if not reply:
-                    reply = ("Model yalnızca düşünce üretti, nihai yanıt boş döndü. "
-                             "Lütfen tekrar deneyin veya farklı bir model seçin.")
-
-            sources = list(called_tools)[:5]
-    except httpx.HTTPStatusError as e:
-        return JSONResponse({"error": f"LLM hatasi: {e.response.status_code} - {e.response.text[:200]}", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))}, status_code=502)
-    except httpx.ConnectError:
-        if provider_id == "ollama":
-            return JSONResponse({"error": "Ollama baglantisi kurulamadi. Ollama'in calistigindan emin olun (localhost:11434).", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))}, status_code=502)
-        return JSONResponse({"error": "LLM saglayicisina baglanilamadi.", "remaining": RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))}, status_code=502)
-    except httpx.TimeoutException:
-        hint = (" Daha küçük/hızlı bir model deneyin (örn. gemma3:4b yerine llama3.2)."
-                if provider_id in ("ollama", "ollama_cloud") else "")
-        return JSONResponse({"error": f"Model yanıtı {llm_timeout}s içinde gelmedi (zaman aşımı).{hint}"}, status_code=504)
-    except Exception as e:
-        detail = str(e) or type(e).__name__
-        return JSONResponse({"error": f"Beklenmeyen hata: {detail}"}, status_code=500)
+    result = await GATEWAY.complete(
+        system=full_system, history=history, message=message,
+        chain=chain, api_keys=api_keys_map, timeout_for=_timeout_for,
+    )
 
     remaining = RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))
-    return JSONResponse({"response": reply, "sources": sources[:5], "remaining": remaining, "provider": provider_id, "model": model})
+    if result.get("error"):
+        return JSONResponse({"error": result["error"], "attempts": result.get("attempts", []),
+                             "remaining": remaining}, status_code=502)
+
+    return JSONResponse({
+        "response": result["reply"],
+        "sources": list(called_tools)[:5],
+        "skills_used": skills_used,
+        "attempts": result.get("attempts", []),
+        "remaining": remaining,
+        "provider": result["provider"],
+        "model": result["model"],
+    })
 
 
 # ============================================================
@@ -3068,6 +3295,9 @@ starlette_app = Starlette(
         Route("/api/chat/test", test_llm_endpoint, methods=["POST"]),
         Route("/api/ollama/models", ollama_models_endpoint, methods=["GET"]),
         Route("/api/skills", skills_endpoint, methods=["GET"]),
+        Route("/api/skills/toggle", skills_toggle_endpoint, methods=["POST"]),
+        Route("/api/gateway/status", gateway_status_endpoint, methods=["GET"]),
+        Route("/api/tools", tools_catalog_endpoint, methods=["GET"]),
         Route("/api/upload/pdf", upload_pdf_endpoint, methods=["POST"]),
         Route("/api/search/refs", search_document_refs_endpoint, methods=["POST"]),
         Route("/api/upload/uyap", upload_uyap_endpoint, methods=["POST"]),

@@ -199,6 +199,24 @@ Türkiye MCP yalnızca arama yapmaz; **bağlama göre uzmanlaşır**:
 
 ---
 
+## 🔀 Gateway & Sistem Paneli
+
+[OpenClaw](https://github.com/openclaw/openclaw) mimarisinden esinlenen merkezi bir **LLM Gateway** tüm model çağrılarını yönetir:
+
+- **Otomatik failover** — Birincil model hata, zaman aşımı veya **boş yanıt** verirse, tanımladığınız **yedek modellere** sırayla otomatik geçilir (ör. yerel Ollama → Ollama Cloud → OpenRouter). Yanıtta hangi modelin kullanıldığı ve yedeğe geçilip geçilmediği gösterilir.
+- **Metrikler** — Sağlayıcı başına başarı/başarısızlık/ortalama gecikme.
+- **Reasoning modelleri** (gpt-oss, minimax, deepseek…) için token bütçesi otomatik ayarlanır → "boş yanıt" sorunu giderilir.
+
+Sağ üstteki **▦ Sistem** düğmesi üç sekme sunar:
+
+| Sekme | İçerik |
+|-------|--------|
+| **🔀 Gateway** | Yedek model (failover) yapılandırması + canlı sağlayıcı metrikleri |
+| **⚡ Skills** | 9 uzmanlık yönergesini tek tek **aç/kapat** |
+| **🧰 Araçlar** | 31 MCP aracının kategori bazında kataloğu (aktif/pasif) |
+
+---
+
 ## 🛠️ Araçlar (Tools)
 
 <details>

@@ -148,6 +148,8 @@ hidden_imports = [
     "workspace",
     # Uzmanlık yönergeleri (skill playbook'ları)
     "skills",
+    # LLM Gateway (failover + metrik)
+    "gateway",
     # Keyring
     "keyring",
     "keyring.backends",

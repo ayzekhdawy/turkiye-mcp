@@ -22,6 +22,48 @@ def _skills_dir() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
 
 
+def _state_path() -> str:
+    """skills_state.json — devre dışı bırakılan skill'leri saklar (veri dizininde)."""
+    env = os.environ.get("TURKIYE_MCP_DATA_DIR")
+    if env:
+        root = env
+    else:
+        appdata = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        root = os.path.join(appdata, "TurkiyeMCP") if appdata else os.path.join(os.path.expanduser("~"), ".turkiye-mcp")
+    try:
+        os.makedirs(root, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(root, "skills_state.json")
+
+
+def _load_disabled() -> set:
+    try:
+        with open(_state_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return set(data.get("disabled", []))
+    except Exception:
+        return set()
+
+
+def _save_disabled(disabled: set) -> None:
+    try:
+        with open(_state_path(), "w", encoding="utf-8") as f:
+            json.dump({"disabled": sorted(disabled)}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def set_enabled(name: str, enabled: bool) -> bool:
+    disabled = _load_disabled()
+    if enabled:
+        disabled.discard(name)
+    else:
+        disabled.add(name)
+    _save_disabled(disabled)
+    return True
+
+
 def _parse_frontmatter(text: str) -> tuple[Dict[str, Any], str]:
     """Basit YAML frontmatter ayrıştırıcı (name, description, triggers, doc_types)."""
     meta: Dict[str, Any] = {}
@@ -89,8 +131,11 @@ def select_skills(message: str, doc_type: str = "", max_skills: int = 2) -> List
         return []
     msg = (message or "").lower()
     dt = (doc_type or "").lower()
+    disabled = _load_disabled()
     scored = []
     for sk in skills:
+        if sk["name"] in disabled:
+            continue
         score = 0
         for trig in sk["triggers"]:
             if trig and trig in msg:
@@ -113,6 +158,10 @@ def build_skills_prompt(selected: List[Dict[str, Any]]) -> str:
     return "\n".join(parts)
 
 
-def list_skill_meta() -> List[Dict[str, str]]:
-    """Arayüz için hafif skill meta listesi."""
-    return [{"name": s["name"], "description": s["description"]} for s in load_skills()]
+def list_skill_meta() -> List[Dict[str, Any]]:
+    """Arayüz için hafif skill meta listesi (enabled durumuyla)."""
+    disabled = _load_disabled()
+    return [{"name": s["name"], "description": s["description"],
+             "triggers": s["triggers"][:8], "doc_types": s["doc_types"],
+             "enabled": s["name"] not in disabled}
+            for s in load_skills()]
