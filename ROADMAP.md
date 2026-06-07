@@ -15,7 +15,7 @@
 
 - [x] **1. Token & bağlam kullanımı takibi** — Gateway `usage` (prompt/completion/total) yakalar; prompt eksikse girdiden tahmin eder. Mesaj alt bilgisinde token + bağlam %'si, topbar'da oturum token toplamı, Sistem→Gateway'de sağlayıcı başına token. (v1.6.2)
 - [x] **2. Ayarlar paneli geliştirme** — Sekmeli ayarlar (Bağlantı / Tercihler): açık-koyu tema, token bütçesi uyarısı, gateway zaman aşımı override, salt-okunur veri dizini. (v1.6.3)
-- [ ] **3. Profesyonel ikon paketi** — Basit satır-içi SVG'ler yerine tutarlı, anlaşılır, profesyonel ikon seti (lucide tarzı); tüm butonlar.
+- [x] **3. Profesyonel ikon paketi** — Tek tip `ICONS` seti + `ic()` yardımcısı (lucide tarzı çizgi ikonlar). Klasör menüsü, mesaj aksiyonları, sistem/ayarlar sekmeleri, emsal/kaldır butonları emoji yerine SVG. (v1.6.4)
 - [ ] **4. Gelişmiş kopyala/yapıştır** — Markdown/düz metin/Word olarak kopyala, kod bloğu kopyala, künye/atıf kopyala; yapıştırma iyileştirmeleri.
 - [ ] **5. Bellek (memory) özelliği** — Kullanıcı başına kalıcı bellek; tercih/olguları saklar, bağlama enjekte eder; "kullanıcısını tanır, ne yapacağını hafızasından kontrol eder". `/api/memory` CRUD + UI.
 - [ ] **6. Sohbet içinden skill düzenleme** — Kullanıcı sohbette "yeni skill ekle / şu skill'i düzenle" deyince SKILL.md yazılır/güncellenir (kendini geliştiren skills). Onay akışıyla.

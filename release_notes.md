@@ -1,14 +1,11 @@
-## 🇹🇷 Türkiye MCP v1.6.3 — Gelişmiş Ayarlar
+## 🇹🇷 Türkiye MCP v1.6.4 — Profesyonel İkon Seti
 
-Ayarlar paneli sekmeli ve özelleştirilebilir hale geldi.
+Arayüzdeki butonlar ve sekmeler artık tutarlı, profesyonel çizgi ikonlar kullanıyor.
 
-### ⚙️ Sekmeli Ayarlar
-- **🔌 Bağlantı:** sağlayıcı, model, API anahtarı, bağlantı testi (önceki düzen).
-- **⚙️ Tercihler (yeni):**
-  - **Tema** — Koyu / **Açık** (anında uygulanır, hatırlanır)
-  - **Token bütçesi uyarısı** — oturum token toplamı aşılınca üst bardaki rozet kırmızıya döner + uyarı
-  - **Gateway zaman aşımı** — model yanıt süresi sınırını (sn) elle ayarlama (0 = varsayılan)
-  - **Veri dizini** — çalışma alanı verisinin saklandığı klasör (salt okunur)
+### 🎨 İkon Paketi
+- Tek tip ikon seti (`ICONS` + `ic()` yardımcısı) — lucide tarzı, tüm uygulamada aynı çizgi kalınlığı/biçim.
+- **Klasör menüsü** (yeni sohbet / yeniden adlandır / sil), **mesaj aksiyonları** (kopyala / Word), **Sistem ve Ayarlar sekmeleri** (Gateway/Skills/Araçlar, Bağlantı/Tercihler), **emsal & kaldır** butonları artık emoji yerine net SVG ikonlarla.
+- Kopyala/Word geri bildirimi ✓ ikonuyla.
 
 ### 📥 İndirme
 - **TurkiyeMCP.exe** — Windows 10/11 (64-bit), kurulumsuz.

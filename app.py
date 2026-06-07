@@ -668,8 +668,15 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 
 /* ---- sistem paneli ---- */
 .panel-tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border)}
-.panel-tab{padding:8px 14px;font-size:13px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.panel-tab{display:flex;align-items:center;gap:7px;padding:8px 14px;font-size:13px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
 .panel-tab.active{color:var(--text);border-bottom-color:var(--accent)}
+.ico{width:15px;height:15px;flex:0 0 auto}
+.fmenu svg.ico{width:13px;height:13px;display:block}
+.msg-actions button svg.ico{width:14px;height:14px;display:block}
+.msg-actions button{display:grid;place-items:center}
+.att-chip .emsal{display:inline-flex;align-items:center;gap:4px}
+.att-chip .emsal svg.ico{width:13px;height:13px}
+.att-chip .ax svg.ico{width:13px;height:13px;display:block}
 .panel-body{max-height:54vh;overflow-y:auto}
 .panel-body::-webkit-scrollbar{width:5px}.panel-body::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
 .sk-row{display:flex;align-items:flex-start;gap:10px;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);margin-bottom:8px}
@@ -929,8 +936,8 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
     <h2 class="display">Ayarlar</h2>
     <div class="modal-sub">Bağlantı ve tercihlerinizi yönetin.</div>
     <div class="panel-tabs">
-      <div class="panel-tab active" id="stab-conn" onclick="switchSettingsTab('conn')">🔌 Bağlantı</div>
-      <div class="panel-tab" id="stab-pref" onclick="switchSettingsTab('pref')">⚙️ Tercihler</div>
+      <div class="panel-tab active" id="stab-conn" onclick="switchSettingsTab('conn')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/></svg> Bağlantı</div>
+      <div class="panel-tab" id="stab-pref" onclick="switchSettingsTab('pref')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg> Tercihler</div>
     </div>
 
     <div id="set-conn">
@@ -998,9 +1005,9 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
     <h2 class="display">Sistem</h2>
     <div class="modal-sub">Gateway durumu, uzmanlık yönergeleri (skills) ve araçlar.</div>
     <div class="panel-tabs">
-      <div class="panel-tab active" id="tab-gateway" onclick="switchPanelTab('gateway')">🔀 Gateway</div>
-      <div class="panel-tab" id="tab-skills" onclick="switchPanelTab('skills')">⚡ Skills</div>
-      <div class="panel-tab" id="tab-tools" onclick="switchPanelTab('tools')">🧰 Araçlar</div>
+      <div class="panel-tab active" id="tab-gateway" onclick="switchPanelTab('gateway')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg> Gateway</div>
+      <div class="panel-tab" id="tab-skills" onclick="switchPanelTab('skills')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg> Skills</div>
+      <div class="panel-tab" id="tab-tools" onclick="switchPanelTab('tools')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.3-.4-.4-2.3 2.8-2.7z"/></svg> Araçlar</div>
     </div>
     <div class="panel-body">
       <div id="pane-gateway"></div>
@@ -1055,6 +1062,27 @@ function applyTheme(v){
   currentTheme = v || 'dark';
   document.body.classList.toggle('light', currentTheme === 'light');
   localStorage.setItem('ui-theme', currentTheme);
+}
+
+// ===== Profesyonel ikon seti (lucide tarzı, tek tip çizgi ikonlar) =====
+const ICONS = {
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  trash: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  scale: '<path d="M12 3v18M5 7h14M7 7l-3 7a4 4 0 0 0 6 0zM17 7l-3 7a4 4 0 0 0 6 0zM7 21h10"/>',
+  plug: '<path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/>',
+  zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/>',
+  wrench: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.3-.4-.4-2.3 2.8-2.7z"/>',
+  sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 6.7 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 13.4H3a2 2 0 0 1 0-4h.1A1.6 1.6 0 0 0 5 6.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.6 3V3a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-1.1 2.7H21a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
+  refs: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/>'
+};
+function ic(name, cls){
+  return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || '') + '</svg>';
 }
 let isSending = false;
 let saveTimer = null;
@@ -1231,9 +1259,9 @@ function sessionRowHtml(c) {
 
 function folderRowHtml(fid, name, count, isCol, isGeneral) {
   const menu = isGeneral ? '' : (
-    '<span class="fmenu" title="Yeni sohbet" data-act="folder-new" data-fid="' + fid + '">＋</span>' +
-    '<span class="fmenu" title="Yeniden adlandır" data-act="folder-rename" data-fid="' + fid + '">✎</span>' +
-    '<span class="fmenu" title="Sil" data-act="folder-del" data-fid="' + fid + '">🗑</span>');
+    '<span class="fmenu" title="Yeni sohbet" data-act="folder-new" data-fid="' + fid + '">' + ic('plus') + '</span>' +
+    '<span class="fmenu" title="Yeniden adlandır" data-act="folder-rename" data-fid="' + fid + '">' + ic('edit') + '</span>' +
+    '<span class="fmenu" title="Sil" data-act="folder-del" data-fid="' + fid + '">' + ic('trash') + '</span>');
   return '<div class="folder-row' + (isCol ? ' collapsed' : '') + '" data-row="folder" data-fid="' + fid + '">' +
     '<svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>' +
     '<span class="fname">' + escapeHtml(name) + '</span>' +
@@ -1361,7 +1389,7 @@ function renderChat() {
     if (m.role === 'assistant') {
       div.innerHTML = '<div class="msg-bubble"><div class="msg-content">' + renderMarkdown(m.text) + '</div>' +
         (m.sources ? renderSources(m.sources) : '') + renderMsgMeta(m) +
-        '<div class="msg-actions"><button onclick="copyMessage(this)" title="Kopyala">📋</button><button onclick="exportWord(this)" title="Word olarak indir">📄</button></div></div>';
+        '<div class="msg-actions"><button onclick="copyMessage(this)" title="Kopyala">' + ic('copy') + '</button><button onclick="exportWord(this)" title="Word olarak indir">' + ic('download') + '</button></div></div>';
     } else {
       div.innerHTML = '<div class="msg-bubble">' + escapeHtml(m.text) + (m.sources ? renderSources(m.sources) : '') + '</div>';
     }
@@ -1382,8 +1410,8 @@ function renderAttachments() {
       '<span class="ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>' +
       '<span class="aname">' + escapeHtml(a.name) + '</span>' +
       (a.refCount ? '<span class="aref">' + a.refCount + ' ref</span>' : '') +
-      '<button class="emsal" title="Bu belge için emsal kararları ara" onclick="searchEmsal(' + i + ')">⚖ Emsal</button>' +
-      '<span class="ax" title="Kaldır" onclick="removeAttachment(' + i + ')">×</span>' +
+      '<button class="emsal" title="Bu belge için emsal kararları ara" onclick="searchEmsal(' + i + ')">' + ic('scale') + ' Emsal</button>' +
+      '<span class="ax" title="Kaldır" onclick="removeAttachment(' + i + ')">' + ic('x') + '</span>' +
     '</div>'
   ).join('');
 }
@@ -1497,8 +1525,8 @@ function copyMessage(btn) {
   const content = bubble.querySelector('.msg-content');
   const text = content ? content.innerText : bubble.innerText;
   navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = '✓';
-    setTimeout(() => btn.textContent = '📋', 1500);
+    btn.innerHTML = ic('check');
+    setTimeout(() => btn.innerHTML = ic('copy'), 1500);
   });
 }
 
@@ -1518,8 +1546,8 @@ function exportWord(btn) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  btn.textContent = '✓';
-  setTimeout(() => btn.textContent = '📄', 1500);
+  btn.innerHTML = ic('check');
+  setTimeout(() => btn.innerHTML = ic('download'), 1500);
 }
 
 // ===== Send Message =====
