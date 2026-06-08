@@ -10,11 +10,34 @@ Tek bir masaüstü uygulamasında: Yargıtay, Danıştay, Anayasa Mahkemesi, Kİ
 
 [![Release](https://img.shields.io/github/v/release/ayzekhdawy/turkiye-mcp?label=s%C3%BCr%C3%BCm&color=e23b4e)](https://github.com/ayzekhdawy/turkiye-mcp/releases/latest)
 [![Download](https://img.shields.io/github/downloads/ayzekhdawy/turkiye-mcp/total?label=indirme&color=2fbf71)](https://github.com/ayzekhdawy/turkiye-mcp/releases/latest)
-![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-0078d4)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776ab)
 ![License](https://img.shields.io/badge/lisans-Ticari%20Olmayan-orange)
 
 ### [⬇️ Windows için indir (TurkiyeMCP.exe)](https://github.com/ayzekhdawy/turkiye-mcp/releases/latest)
+
+<details>
+<summary>🍎 macOS Kurulumu</summary>
+
+```bash
+# 1. Repoyu klonla
+git clone https://github.com/ayzekhdawy/turkiye-mcp.git
+cd turkiye-mcp
+
+# 2. Kurulum betiğini çalıştır (Python 3.11+ gerekli)
+chmod +x install-macos.command
+./install-macos.command
+
+# 3. Başlat
+./TurkiyeMCP.command
+```
+
+Veya çift tıklayarak: `install-macos.command` → kurulum, `TurkiyeMCP.command` → başlatma.
+
+Port değiştirmek için: `TURKIYE_MCP_PORT=9090 ./TurkiyeMCP.command`
+
+</details>
+
 
 </div>
 

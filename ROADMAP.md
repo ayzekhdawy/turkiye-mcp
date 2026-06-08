@@ -21,7 +21,7 @@
 - [x] **6. Sohbet içinden skill düzenleme** — Kullanıcı sohbette "yeni skill ekle / şu skill'i düzenle" deyince SKILL.md yazılır/güncellenir (kendini geliştiren skills). Onay akışıyla. `/api/skills/content` + `/api/skills/save`, detectSkillBlocks(), onay modalı, "Yeni Skill Oluştur" butonu. (v1.6.7)
 - [ ] **7. Gateway server özelleştirme** — Sağlayıcı base URL/zaman aşımı/model zinciri sunucu tarafında saklansın; `/api/gateway/config` GET+POST; UI'den düzenlenebilsin.
 - [x] **8. EXE hızlı açılış + kalıcı server** — PID dosya kilidi, health her zaman 200, daha hızlı server tespiti, tray bildirimi, tooltip düzeltmesi. (v1.6.9)
-- [ ] **9. macOS kolay kurulum** — macOS için kurulum betiği (.command) ve/veya PyInstaller mac spec'i; kullanıcıların macOS'te kurup kullanabilmesi.
+- [x] **9. macOS kolay kurulum** — install-macos.sh + install-macos.command (cift tikla), turkiye_mcp_mac.spec, README macOS bolumu. (v1.6.10)
 - [ ] **10. Bilgisayar/yetki düzeyi araçlar (dikkatli)** — Kullanıcı izniyle yerel araç kullanımı; her kullanıcı için kendini geliştirebilir. Güvenlik onayı zorunlu; en sona, küçük ve denetimli adımlarla.
 
 ## Tamamlananlar (özet)
