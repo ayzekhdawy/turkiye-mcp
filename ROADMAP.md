@@ -20,7 +20,7 @@
 - [x] **5. Bellek (memory) özelliği** — Kullanıcı başına kalıcı bellek; tercih/olguları saklar, bağlama enjekte eder; "kullanıcısını tanır, ne yapacağını hafızasından kontrol eder". `/api/memory` CRUD + UI. (v1.6.6)
 - [x] **6. Sohbet içinden skill düzenleme** — Kullanıcı sohbette "yeni skill ekle / şu skill'i düzenle" deyince SKILL.md yazılır/güncellenir (kendini geliştiren skills). Onay akışıyla. `/api/skills/content` + `/api/skills/save`, detectSkillBlocks(), onay modalı, "Yeni Skill Oluştur" butonu. (v1.6.7)
 - [ ] **7. Gateway server özelleştirme** — Sağlayıcı base URL/zaman aşımı/model zinciri sunucu tarafında saklansın; `/api/gateway/config` GET+POST; UI'den düzenlenebilsin.
-- [ ] **8. EXE hızlı açılış + kalıcı server** — Modülleri tembel/asenkron yükle, açılış süresini kısalt; EXE doğrudan server açsın, kapatılıp açıldığında çalışan server'a hızlı bağlansın (splash + sağlık beklemesi iyileştir).
+- [x] **8. EXE hızlı açılış + kalıcı server** — PID dosya kilidi, health her zaman 200, daha hızlı server tespiti, tray bildirimi, tooltip düzeltmesi. (v1.6.9)
 - [ ] **9. macOS kolay kurulum** — macOS için kurulum betiği (.command) ve/veya PyInstaller mac spec'i; kullanıcıların macOS'te kurup kullanabilmesi.
 - [ ] **10. Bilgisayar/yetki düzeyi araçlar (dikkatli)** — Kullanıcı izniyle yerel araç kullanımı; her kullanıcı için kendini geliştirebilir. Güvenlik onayı zorunlu; en sona, küçük ve denetimli adımlarla.
 

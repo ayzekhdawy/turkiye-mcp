@@ -98,6 +98,60 @@ def _global_excepthook(exc_type, exc_value, exc_tb):
         pass
 
 
+
+
+def _pid_path() -> Path:
+    """PID dosya yolu (sunucu calisma kilidi)."""
+    if getattr(sys, 'frozen', False):
+        env = os.environ.get('TURKIYE_MCP_DATA_DIR')
+        if env:
+            return Path(env) / 'server.pid'
+        appdata = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA')
+        if appdata:
+            return Path(appdata) / 'TurkiyeMCP' / 'server.pid'
+    return _EXE_DIR / 'server.pid'
+
+
+def write_pid(port: int):
+    """Mevcut surecin PID ve port bilgisini yaz."""
+    try:
+        p = _pid_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, 'w', encoding='utf-8') as f:
+            f.write(str(os.getpid()) + '\n' + str(port) + '\n')
+    except Exception:
+        pass
+
+
+def read_pid() -> tuple[int, int] | None:
+    """PID dosyasindan PID ve port oku. Gecerli degilse None."""
+    try:
+        p = _pid_path()
+        if not p.exists():
+            return None
+        with open(p, 'r', encoding='utf-8') as f:
+            parts = f.read().strip().splitlines()
+        pid_val = int(parts[0])
+        port_val = int(parts[1]) if len(parts) > 1 else PORT
+        # PID hala calisiyor mu?
+        if sys.platform == 'win32':
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid_val)
+            if handle:
+                kernel32.CloseHandle(handle)
+                return (pid_val, port_val)
+            return None
+        else:
+            try:
+                os.kill(pid_val, 0)
+                return (pid_val, port_val)
+            except OSError:
+                return None
+    except Exception:
+        return None
+
 sys.excepthook = _global_excepthook
 
 # Yerel mod bayrağı — app.py bunu kontrol eder
@@ -145,38 +199,39 @@ def is_server_running(host: str, port: int) -> bool:
     import httpx
     try:
         resp = httpx.get(f"http://{host}:{port}/health", timeout=3)
-        return resp.status_code in (200, 500)
+        return resp.status_code == 200
     except Exception:
         return False
 
 
 def wait_for_server(host: str, port: int, timeout: float = 120.0) -> bool:
-    """Sunucunun hazır olmasını bekle.
-    Modüller yüklenirken /health 500 dönebilir — bu durumda beklenecek.
-    Sadece 200 dönerse hazır sayılır."""
+    """Sunucunun hazir olmasini bekle.
+    /health her zaman 200 doner (modul durumundan bagimsiz).
+    Ilk 200 yaniti sunucunun calistigini gosterir."""
     import httpx
     start = time.time()
     logger.info(f"Sunucu bekleniyor (timeout: {timeout}s)...")
+    poll_interval = 0.5
+    last_log = 0
     while time.time() - start < timeout:
         try:
             resp = httpx.get(f"http://{host}:{port}/health", timeout=2)
             if resp.status_code == 200:
                 elapsed = time.time() - start
-                logger.info(f"[OK] Sunucu hazır! ({elapsed:.1f}s)")
+                logger.info(f"[OK] Sunucu hazir! ({elapsed:.1f}s)")
                 return True
-            # 500 = sunucu çalışıyor ama modüller yükleniyor, bekle
-            if resp.status_code == 500:
-                time.sleep(1)
-                continue
+            # 500 = sunucu calisiyor ama moduller yukleniyor
+            poll_interval = 1.0
         except Exception:
-            time.sleep(0.5)
+            poll_interval = 0.5
         elapsed = time.time() - start
-        if int(elapsed) % 10 == 0 and elapsed > 1:
+        if elapsed - last_log >= 5:
             logger.info(f"Sunucu hala bekleniyor... ({elapsed:.0f}s)")
-    logger.error(f"[FAIL] Sunucu başlatılamadı (timeout: {timeout}s).")
-    _log_crash(f"Server failed to start within {timeout}s\nCheck turkiye_mcp.log for details")
+            last_log = elapsed
+        time.sleep(poll_interval)
+    logger.error(f"[FAIL] Sunucu baslatilamadi (timeout: {timeout}s).")
+    _log_crash(f"Server failed to start within {timeout}s - Check turkiye_mcp.log for details")
     return False
-
 
 def start_server(host: str, port: int):
     """ASGI sunucusunu başlat (ayrı thread'de)."""
@@ -229,7 +284,7 @@ def create_tray_icon(on_quit, on_show_window):
         pystray.MenuItem("❌ Tamamen Kapat", on_quit),
     )
 
-    icon = pystray.Icon("turkiye_mcp", img, f"Turkiye MCP Server (:{{PORT}})", menu)
+    icon = pystray.Icon("turkiye_mcp", img, f"Turkiye MCP Server (:{PORT})", menu)
     return icon
 
 
@@ -395,6 +450,15 @@ def _main_inner():
             on_quit=lambda icon, item: os._exit(0),
             on_show_window=on_show_window,
         )
+        # Tray ikonu hazirsa baslangic bildirimi goster
+        if tray_icon:
+            def _notify_ready(icon):
+                time.sleep(1)
+                try:
+                    icon.notify("Turkiye MCP calisiyor", "Turkiye MCP")
+                except Exception:
+                    pass
+            threading.Thread(target=_notify_ready, args=(tray_icon,), daemon=True).start()
 
     # -- 4. GUI veya tarayıcı --
     if args.browser or tray_icon is None:

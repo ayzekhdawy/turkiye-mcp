@@ -2472,7 +2472,7 @@ async def health_endpoint(request):
         })
     except Exception as e:
         import traceback
-        return JSONResponse({"status": "error", "error": str(e), "traceback": traceback.format_exc()}, status_code=500)
+        return JSONResponse({"status": "degraded", "error": str(e)[:200], "modules": {}, "active_count": 0, "total_count": 0}, status_code=200)
 
 
 # --- UYAP EYP/UDF ARAÇLARI ---
