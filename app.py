@@ -51,6 +51,7 @@ except Exception:
 
 try:
     from gateway import LLMGateway  # Merkezi LLM yönlendirme + failover
+    import gateway as gateway_mod
     GATEWAY_AVAILABLE = True
 except Exception:
     LLMGateway = None
@@ -704,6 +705,13 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .tool-row code{font-size:11px;color:var(--accent-hi)}
 .tool-row .tdesc{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gw-row{display:flex;align-items:center;justify-content:space-between;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);margin-bottom:8px;font-size:12.5px}
+.gw-prov-row{padding:8px 10px;border-radius:8px;background:var(--s2);border:1px solid var(--border);margin-bottom:6px;font-size:12px}
+.gw-prov-name{font-weight:600;margin-bottom:4px;color:var(--text)}
+.gw-prov-fields{display:flex;gap:6px;align-items:center}
+.gw-input{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:11px;font-family:monospace}
+.gw-input:focus{border-color:var(--accent);outline:none}
+.gw-url{flex:1;min-width:0}
+.gw-timeout{width:60px;text-align:center}
 .gw-stat{font-variant-numeric:tabular-nums;color:var(--dim)}
 .gw-ok{color:var(--green)}.gw-bad{color:var(--accent)}
 .fallback-box{display:flex;gap:8px}
@@ -1454,6 +1462,7 @@ function setupTree() {
     else if (act === 'save-new-skill') saveNewSkillFromEditor();
     else if (act === 'confirm-skill-save') confirmSaveSkill();
     else if (act === 'cancel-skill-save') closeSkillConfirm();
+    else if (act === 'save-gw-config') saveGwConfig();
   });
 })();
 
@@ -2130,17 +2139,43 @@ function switchPanelTab(t){
 
 async function loadGatewayPane(){
   const pane = document.getElementById('pane-gateway');
-  pane.innerHTML =
-    '<div class="field"><label>Yedek Model (Failover)</label>' +
+  // Sunucu tarafindaki config'i yukle
+  let gwCfg = {providers: {}, default_chain: []};
+  try {
+    gwCfg = await (await fetch('/api/gateway/config')).json();
+  } catch(e) {}
+
+  // Saglayici URL/timeout duzenleme bolumu
+  let provHtml = '<div class="tool-cat">Saglayici Ayarlari</div>';
+  const pkeys = Object.keys(PROVIDERS);
+  pkeys.forEach(k => {
+    const p = PROVIDERS[k];
+    const cfg = gwCfg.providers[k] || {};
+    const url = cfg.url || '';
+    const timeout = cfg.timeout || '';
+    const dm = cfg.default_model || p.default_model || '';
+    provHtml += '<div class="gw-prov-row" data-prov="'+k+'">' +
+      '<div class="gw-prov-name">' + escapeHtml(p.name) + '</div>' +
+      '<div class="gw-prov-fields">' +
+      '<input class="gw-input gw-url" data-prov="'+k+'" value="'+escapeHtml(url||'')+'" placeholder="'+escapeHtml(url?'':('Varsayilan URL'))+'" />' +
+      '<input class="gw-input gw-timeout" data-prov="'+k+'" type="number" min="10" max="600" value="'+escapeHtml(String(timeout))+'" placeholder="sn" style="width:60px" />' +
+      '</div></div>';
+  });
+  provHtml += '<button class="btn-ghost" data-act="save-gw-config" style="margin-top:8px">' + ic('check') + ' Kaydet</button>';
+
+  // Failover bolumu
+  let fbHtml = '<div class="field"><label>Yedek Model (Failover)</label>' +
     '<div class="fallback-box"><select id="fb-provider" onchange="onFbProviderChange()"></select>' +
     '<select id="fb-model"></select></div>' +
     '<div style="display:flex;gap:8px;margin-top:8px">' +
     '<button class="btn-ghost" onclick="addFallback()">+ Yedek Ekle</button>' +
     '<button class="btn-ghost" onclick="clearFallbacks()">Temizle</button></div>' +
-    '<div id="fb-list" style="margin-top:10px"></div></div>' +
-    '<div class="tool-cat">Sağlayıcı Metrikleri</div><div id="gw-metrics">Yükleniyor…</div>';
+    '<div id="fb-list" style="margin-top:10px"></div></div>';
+
+  pane.innerHTML = provHtml + fbHtml +
+    '<div class="tool-cat">Saglayici Metrikleri</div><div id="gw-metrics">Yukleniyor...</div>';
   const fps = document.getElementById('fb-provider');
-  fps.innerHTML = Object.keys(PROVIDERS).map(k=>'<option value="'+k+'">'+PROVIDERS[k].name+'</option>').join('');
+  fps.innerHTML = pkeys.map(k=>'<option value="'+k+'">'+PROVIDERS[k].name+'</option>').join('');
   onFbProviderChange();
   renderFbList();
   try {
@@ -2150,11 +2185,45 @@ async function loadGatewayPane(){
     document.getElementById('gw-metrics').innerHTML = keys.length ? keys.map(k=>{
       const m = p[k];
       const tok = m.tokens ? (' · ' + fmtNum(m.tokens) + ' token') : '';
-      return '<div class="gw-row"><div><b>'+escapeHtml(m.name)+'</b><div class="gw-stat">'+m.calls+' çağrı · '+m.avg_latency_ms+'ms ort.'+tok+'</div></div>'+
+      return '<div class="gw-row"><div><b>'+escapeHtml(m.name)+'</b><div class="gw-stat">'+m.calls+' cagri · '+m.avg_latency_ms+'ms ort.'+tok+'</div></div>'+
         '<div class="gw-stat"><span class="gw-ok">✓'+m.ok+'</span> · <span class="gw-bad">✗'+(m.fail+m.empty)+'</span></div></div>';
-    }).join('') : '<div class="sk-desc">Henüz çağrı yapılmadı.</div>';
-  } catch(e){ document.getElementById('gw-metrics').innerHTML = '<div class="sk-desc">Durum alınamadı.</div>'; }
+    }).join('') : '<div class="sk-desc">Henuz cagri yapilmadi.</div>';
+  } catch(e){ document.getElementById('gw-metrics').innerHTML = '<div class="sk-desc">Durum alinamadi.</div>'; }
 }
+async function saveGwConfig(){
+  const providers = {};
+  document.querySelectorAll('.gw-prov-row').forEach(row => {
+    const pid = row.getAttribute('data-prov');
+    const url = row.querySelector('.gw-url').value.trim();
+    const timeout = parseInt(row.querySelector('.gw-timeout').value, 10) || 0;
+    const entry = {};
+    if (url) entry.url = url;
+    if (timeout > 0) entry.timeout = timeout;
+    if (Object.keys(entry).length) providers[pid] = entry;
+  });
+  const payload = {providers: providers, default_chain: fallbacks.slice(0, 4)};
+  try {
+    const res = await fetch('/api/gateway/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    const data = await res.json();
+    if (data.status === 'ok') {
+      // JS PROVIDERS'i guncelle
+      if (data.config && data.config.providers) {
+        Object.keys(data.config.providers).forEach(k => {
+          if (PROVIDERS[k]) {
+            const c = data.config.providers[k];
+            if (c.url) PROVIDERS[k]._url = c.url;
+            if (c.default_model) PROVIDERS[k].default_model = c.default_model;
+            if (c.models) PROVIDERS[k].models = c.models;
+          }
+        });
+      }
+      toast('Gateway ayarlari kaydedildi');
+    } else {
+      toast('Hata: ' + (data.error || 'Kaydedilemedi'), true);
+    }
+  } catch(e) { toast('Ayar kaydetme hatasi', true); }
+}
+
 function onFbProviderChange(){
   const prov = document.getElementById('fb-provider').value;
   document.getElementById('fb-model').innerHTML = PROVIDERS[prov].models.map(m=>'<option value="'+m+'">'+m+'</option>').join('');
@@ -2564,6 +2633,14 @@ LLM_PROVIDERS = {
 }
 
 # Merkezi LLM Gateway (failover + metrik) — LLM_PROVIDERS üzerinden çalışır
+# Kaydedilmiş gateway config'i uygula (varsa)
+if GATEWAY_AVAILABLE:
+    try:
+        _saved_gw_cfg = gateway_mod.load_config()
+        if _saved_gw_cfg:
+            gateway_mod.apply_config(LLM_PROVIDERS, _saved_gw_cfg)
+    except Exception:
+        pass
 GATEWAY = LLMGateway(LLM_PROVIDERS) if GATEWAY_AVAILABLE else None
 
 
@@ -3680,6 +3757,31 @@ async def gateway_status_endpoint(request):
     return JSONResponse({"available": True, "providers": GATEWAY.status()})
 
 
+async def gateway_config_endpoint(request):
+    """Gateway yapılandırması — GET: mevcut config, POST: güncelle."""
+    if request.method == "GET":
+        snapshot = gateway_mod.get_config_snapshot(LLM_PROVIDERS)
+        return JSONResponse(snapshot)
+    # POST — yapılandırmayı güncelle
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Geçersiz JSON"}, status_code=400)
+    providers_over = body.get("providers", {})
+    default_chain = body.get("default_chain", [])
+    # Config'i oluştur ve kaydet
+    config = {}
+    if providers_over:
+        config["providers"] = providers_over
+    if default_chain:
+        config["default_chain"] = default_chain
+    gateway_mod.save_config(config)
+    # Mevcut LLM_PROVIDERS'a uygula
+    gateway_mod.apply_config(LLM_PROVIDERS, config)
+    # JS PROVIDERS'ı da güncelle
+    return JSONResponse({"status": "ok", "config": gateway_mod.get_config_snapshot(LLM_PROVIDERS)})
+
+
 # Araç kataloğu — UI'de araçları kategorize göstermek için
 TOOLS_CATALOG = [
     ("Hukuk", "search_bedesten_unified", "Yargıtay/Danıştay/yerel/istinaf birleşik karar arama"),
@@ -3963,7 +4065,15 @@ async def chat_endpoint(request):
     # ---- Gateway üzerinden tamamlama (failover zinciri) ----
     # Birincil model + kullanıcının tanımladığı yedek modeller (failover)
     chain = [{"provider": provider_id, "model": model}]
-    for fb in (body.get("fallbacks") or [])[:4]:
+    client_fallbacks = body.get("fallbacks") or []
+    # Istemci fallback yoksa, sunucu tarafindaki kayitli default_chain kullan
+    if not client_fallbacks and GATEWAY_AVAILABLE:
+        try:
+            _gw_cfg = gateway_mod.load_config()
+            client_fallbacks = _gw_cfg.get("default_chain", [])
+        except Exception:
+            pass
+    for fb in client_fallbacks[:4]:
         p = (fb.get("provider") or "").lower()
         if p in LLM_PROVIDERS:
             chain.append({"provider": p, "model": fb.get("model") or LLM_PROVIDERS[p]["default_model"]})
@@ -3984,6 +4094,10 @@ async def chat_endpoint(request):
     def _timeout_for(pid):
         if timeout_override and 10 <= timeout_override <= 600:
             return timeout_override
+        # Kaydedilmis saglayici timeout'u (gateway config)
+        pc = LLM_PROVIDERS.get(pid, {})
+        if "timeout" in pc and isinstance(pc["timeout"], (int, float)) and pc["timeout"] >= 10:
+            return int(pc["timeout"])
         return 300 if pid == "ollama" else 120
 
     result = await GATEWAY.complete(
@@ -4038,6 +4152,7 @@ starlette_app = Starlette(
         Route("/api/skills/content", skills_content_endpoint, methods=["GET"]),
         Route("/api/skills/save", skills_save_endpoint, methods=["POST"]),
         Route("/api/gateway/status", gateway_status_endpoint, methods=["GET"]),
+        Route("/api/gateway/config", gateway_config_endpoint, methods=["GET", "POST"]),
         Route("/api/tools", tools_catalog_endpoint, methods=["GET"]),
         Route("/api/upload/pdf", upload_pdf_endpoint, methods=["POST"]),
         Route("/api/search/refs", search_document_refs_endpoint, methods=["POST"]),

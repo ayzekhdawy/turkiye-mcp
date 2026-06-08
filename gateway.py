@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
+import json
+import os
+import threading
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -61,6 +64,102 @@ def _extract_usage(data: dict) -> dict:
     completion = u.get("completion_tokens", u.get("output_tokens", 0)) or 0
     total = u.get("total_tokens", (prompt + completion)) or (prompt + completion)
     return {"prompt": int(prompt), "completion": int(completion), "total": int(total)}
+
+
+
+# ===== Gateway konfigürasyonu (sunucu tarafında kalıcı) =====
+
+_LOCK = threading.RLock()
+
+def _data_dir() -> str:
+    """Gateway config dosyasının dizini (workspace ile aynı kök)."""
+    env = os.environ.get("TURKIYE_MCP_DATA_DIR")
+    if env:
+        root = env
+    else:
+        appdata = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if appdata:
+            root = os.path.join(appdata, "TurkiyeMCP")
+        else:
+            root = os.path.join(os.path.expanduser("~"), ".turkiye-mcp")
+    ws = os.path.join(root, "workspace")
+    os.makedirs(ws, exist_ok=True)
+    return ws
+
+
+def _config_path() -> str:
+    return os.path.join(_data_dir(), "gateway_config.json")
+
+
+def load_config() -> dict:
+    """Kaydedilmiş gateway yapılandırmasını yükle (boşsa varsayılan döner)."""
+    with _LOCK:
+        try:
+            with open(_config_path(), "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+
+def save_config(config: dict) -> None:
+    """Gateway yapılandırmasını diske kaydet (atomik yazım)."""
+    with _LOCK:
+        tmp = _config_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, _config_path())
+
+
+def apply_config(providers: dict, config: dict) -> dict:
+    """Kaydedilmiş config'i providers dict'ine uygula ve güncel halini döndür.
+
+    Config yapısı:
+    {
+      "providers": {
+        "openrouter": {"url": "https://...", "timeout": 120, "default_model": "gpt-4o-mini", "models": [...]},
+        ...
+      },
+      "default_chain": [{"provider": "openrouter", "model": "gpt-4o-mini"}, ...]
+    }
+    Sadece belirtilen alanları override eder; eksik alanlar varsayından kalır.
+    """
+    overrides = config.get("providers", {})
+    for pid, over in overrides.items():
+        if pid not in providers:
+            continue
+        pc = providers[pid]
+        if "url" in over and over["url"]:
+            pc["url"] = over["url"]
+        if "timeout" in over:
+            pc["timeout"] = int(over["timeout"])
+        if "default_model" in over and over["default_model"]:
+            pc["default_model"] = over["default_model"]
+        if "models" in over and isinstance(over["models"], list):
+            # Kullanıcının eklediği modeller + varsayılanlar (tekrarsız)
+            merged = list(over["models"])
+            for m in pc.get("models", []):
+                if m not in merged:
+                    merged.append(m)
+            pc["models"] = merged
+    return providers
+
+
+def get_config_snapshot(providers: dict) -> dict:
+    """Mevcut providers dict'inden okunabilir bir config snapshot'u oluştur."""
+    result = {}
+    for pid, pc in providers.items():
+        entry = {"name": pc.get("name", pid)}
+        if "url" in pc:
+            entry["url"] = pc["url"]
+        if "timeout" in pc:
+            entry["timeout"] = pc["timeout"]
+        if "default_model" in pc:
+            entry["default_model"] = pc["default_model"]
+        if "models" in pc:
+            entry["models"] = list(pc["models"])
+        result[pid] = entry
+    saved = load_config()
+    return {"providers": result, "default_chain": saved.get("default_chain", [])}
 
 
 class LLMGateway:
