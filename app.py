@@ -43,6 +43,13 @@ except Exception:
     SKILLS_AVAILABLE = False
 
 try:
+    import memory as memory_mod  # Kullanıcı başına kalıcı bellek
+    MEMORY_AVAILABLE = True
+except Exception:
+    memory_mod = None
+    MEMORY_AVAILABLE = False
+
+try:
     from gateway import LLMGateway  # Merkezi LLM yönlendirme + failover
     GATEWAY_AVAILABLE = True
 except Exception:
@@ -837,6 +844,26 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .sources-copy-all{font-size:11px;color:var(--faint);cursor:pointer;background:none;border:none;padding:2px 0;margin-left:4px;vertical-align:middle;transition:color .12s}
 .sources-copy-all:hover{color:var(--accent-hi)}
 
+/* ---- memory sidebar section ---- */
+.sb-section{border-top:1px solid var(--border);margin-top:8px;padding-top:8px}
+.sb-section-header{display:flex;align-items:center;justify-content:space-between;padding:4px 9px;cursor:pointer}
+.sb-section-header .sb-label{cursor:pointer}
+.mem-item{display:flex;align-items:flex-start;gap:6px;padding:6px 9px;border-radius:8px;font-size:12px;color:var(--dim);line-height:1.4;position:relative;transition:.12s}
+.mem-item:hover{background:var(--s2);color:var(--text)}
+.mem-item .mem-badge{font-size:9px;text-transform:uppercase;letter-spacing:.04em;padding:1px 5px;border-radius:4px;flex:0 0 auto;margin-top:1px}
+.mem-badge.preference{background:rgba(99,102,241,.15);color:#818cf8}
+.mem-badge.fact{background:rgba(34,197,94,.15);color:#22c55e}
+.mem-badge.instruction{background:rgba(251,146,60,.15);color:#fb923c}
+.mem-item .mem-text{flex:1;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.mem-item .mem-del{opacity:0;cursor:pointer;font-size:11px;color:var(--faint);flex:0 0 auto}
+.mem-item:hover .mem-del{opacity:.7}
+.mem-item:hover .mem-del:hover{color:var(--accent)}
+.mem-add-row{display:flex;gap:4px;padding:6px 9px}
+.mem-add-row select{width:80px;padding:4px 6px;border-radius:6px;background:var(--s2);border:1px solid var(--border);color:var(--text);font-size:11px}
+.mem-add-row input{flex:1;padding:4px 8px;border-radius:6px;background:var(--s2);border:1px solid var(--border);color:var(--text);font-size:11px}
+.mem-add-row button{width:26px;height:26px;border-radius:6px;border:none;background:var(--accent);color:#fff;display:grid;place-items:center;cursor:pointer;font-size:13px;flex:0 0 auto}
+.mem-count{font-size:10px;color:var(--faint);background:var(--s2);border:1px solid var(--border);padding:0 5px;border-radius:9999px;min-width:18px;text-align:center}
+
 @media(max-width:768px){
   .sidebar{width:60px;flex:0 0 60px;padding:12px 8px}
   .brand-name,.brand-sub,.sb-label,.new-chat span,.mod-left span,.mod-count,.folder-row .fname,.folder-row .fcount,.session-row .stitle{display:none}
@@ -880,6 +907,19 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
     <div class="tree-wrap">
       <div class="sb-label">Çalışma Alanı</div>
       <div class="tree" id="tree"></div>
+    </div>
+
+    <div class="sb-section" id="memory-section">
+      <div class="sb-section-header" data-act="toggle-mem-section">
+        <div class="sb-label">🧠 Bellek</div>
+        <span class="mem-count" id="mem-count"></span>
+      </div>
+      <div id="memory-list"></div>
+      <div class="mem-add-row">
+        <select id="mem-cat"><option value="preference">Tercih</option><option value="fact">Olgu</option><option value="instruction">Talimat</option></select>
+        <input id="mem-input" placeholder="Bellek ekle...">
+        <button data-act="add-memory">+</button>
+      </div>
     </div>
 
     <div class="modules">
@@ -1372,6 +1412,21 @@ function setupTree() {
     }
   });
 }
+
+// Sidebar bellek aksiyonları (data-act delegasyonu)
+(function() {
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar || sidebar._memWired) return;
+  sidebar._memWired = true;
+  sidebar.addEventListener('click', function(e) {
+    const actEl = e.target.closest('[data-act]');
+    if (!actEl) return;
+    const act = actEl.getAttribute('data-act');
+    const memId = actEl.getAttribute('data-mem-id');
+    if (act === 'add-memory') addMemory();
+    else if (act === 'del-memory') deleteMemory(memId);
+  });
+})();
 
 async function selectChat(id) {
   activeChatId = id;
@@ -2149,6 +2204,54 @@ async function loadModules() {
 }
 loadModules();
 
+// ===== Memory (Bellek) =====
+let memories = [];
+
+async function loadMemories() {
+  try {
+    const res = await fetch('/api/memory');
+    const data = await res.json();
+    memories = data.memories || [];
+    renderMemories();
+  } catch(e) { memories = []; renderMemories(); }
+}
+
+function renderMemories() {
+  const list = document.getElementById('memory-list');
+  const count = document.getElementById('mem-count');
+  if (count) count.textContent = memories.length ? memories.length : '';
+  if (!memories.length) {
+    list.innerHTML = '<div style="text-align:center;color:var(--faint);padding:12px;font-size:11px">Henuz bellek yok</div>';
+    return;
+  }
+  const catLabels = {preference:'tercih', fact:'olgu', instruction:'talimat'};
+  list.innerHTML = memories.map(function(m) {
+    return '<div class="mem-item" data-mem-id="' + m.id + '">' +
+      '<span class="mem-badge ' + m.category + '">' + (catLabels[m.category]||m.category) + '</span>' +
+      '<span class="mem-text">' + escapeHtml(m.content) + '</span>' +
+      '<span class="mem-del" data-act="del-memory" data-mem-id="' + m.id + '">x</span></div>';
+  }).join('');
+}
+
+async function addMemory() {
+  const cat = document.getElementById('mem-cat').value;
+  const content = document.getElementById('mem-input').value.trim();
+  if (!content) return;
+  await fetch('/api/memory', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({category:cat, content:content})});
+  document.getElementById('mem-input').value = '';
+  loadMemories();
+}
+
+async function deleteMemory(id) {
+  await fetch('/api/memory/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:id})});
+  loadMemories();
+}
+
+document.getElementById('mem-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); addMemory(); }
+});
+loadMemories();
+
 // ===== Init =====
 async function init() {
   applyTheme(currentTheme);
@@ -2185,6 +2288,7 @@ async def health_endpoint(request):
             "total_count": len(MODULES_AVAILABLE),
             "skills_count": len(skills_engine.load_skills()) if SKILLS_AVAILABLE else 0,
             "workspace": WORKSPACE_AVAILABLE,
+            "memory": MEMORY_AVAILABLE,
             "date": date.today().isoformat(),
         })
     except Exception as e:
@@ -3314,6 +3418,62 @@ async def workspace_file_delete_endpoint(request):
     return JSONResponse({"status": "ok" if ok else "notfound"})
 
 
+# ===== Memory (Bellek) Endpoint'leri =====
+
+async def memory_list_endpoint(request):
+    """Tüm bellek kayıtlarını listele."""
+    if not MEMORY_AVAILABLE:
+        return JSONResponse({"memories": []})
+    return JSONResponse({"memories": memory_mod.list_memories()})
+
+
+async def memory_add_endpoint(request):
+    """Yeni bellek kaydı ekle. Body: {"category": "preference|fact|instruction", "content": "..."}"""
+    if not MEMORY_AVAILABLE:
+        return JSONResponse({"error": "memory module not available"}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    category = body.get("category", "preference")
+    content = body.get("content", "")
+    try:
+        entry = memory_mod.add_memory(category, content)
+        return JSONResponse(entry)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+async def memory_update_endpoint(request):
+    """Bellek kaydını güncelle. Body: {"id": "mem_xxx", "category"?: ..., "content"?: ...}"""
+    if not MEMORY_AVAILABLE:
+        return JSONResponse({"error": "memory module not available"}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    mem_id = body.get("id", "")
+    if not mem_id:
+        return JSONResponse({"error": "id required"}, status_code=400)
+    result = memory_mod.update_memory(mem_id, category=body.get("category"), content=body.get("content"))
+    if result is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse(result)
+
+
+async def memory_delete_endpoint(request):
+    """Bellek kaydını sil. Body: {"id": "mem_xxx"}"""
+    if not MEMORY_AVAILABLE:
+        return JSONResponse({"error": "memory module not available"}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    mem_id = body.get("id", "")
+    ok = memory_mod.delete_memory(mem_id)
+    return JSONResponse({"status": "ok" if ok else "notfound"})
+
+
 async def ollama_models_endpoint(request):
     """Yerel Ollama'da yüklü modelleri listeler (cloud proxy modelleri dahil).
 
@@ -3630,6 +3790,16 @@ async def chat_endpoint(request):
     if skills_prompt:
         full_system += "\n\n" + skills_prompt
     full_system += doc_system + emsal_system + related_system
+    # Bellek enjeksiyonu
+    if MEMORY_AVAILABLE:
+        mems = memory_mod.list_memories()
+        if mems:
+            cat_labels = {"preference": "tercih", "fact": "olgu", "instruction": "talimat"}
+            mem_lines = [f"- [{cat_labels.get(m['category'], m['category'])}] {m['content']}" for m in mems]
+            full_system += (
+                "\n\nKULLANICI HAFIZASI (öncelikli — bu bilgileri her yanıtta göz önünde bulundur):\n"
+                + "\n".join(mem_lines)
+            )
     if tool_context:
         full_system += f"\n\nMCP araç sonuçları:\n\n{tool_context}"
 
@@ -3721,6 +3891,10 @@ starlette_app = Starlette(
         Route("/api/workspace/file", workspace_file_upload_endpoint, methods=["POST"]),
         Route("/api/workspace/files", workspace_files_list_endpoint, methods=["GET"]),
         Route("/api/workspace/file/delete", workspace_file_delete_endpoint, methods=["POST"]),
+        Route("/api/memory", memory_list_endpoint, methods=["GET"]),
+        Route("/api/memory", memory_add_endpoint, methods=["POST"]),
+        Route("/api/memory/update", memory_update_endpoint, methods=["POST"]),
+        Route("/api/memory/delete", memory_delete_endpoint, methods=["POST"]),
         Mount("/", app=mcp_asgi),
     ],
 )
