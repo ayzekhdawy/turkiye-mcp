@@ -22,7 +22,7 @@
 - [ ] **7. Gateway server özelleştirme** — Sağlayıcı base URL/zaman aşımı/model zinciri sunucu tarafında saklansın; `/api/gateway/config` GET+POST; UI'den düzenlenebilsin.
 - [x] **8. EXE hızlı açılış + kalıcı server** — PID dosya kilidi, health her zaman 200, daha hızlı server tespiti, tray bildirimi, tooltip düzeltmesi. (v1.6.9)
 - [x] **9. macOS kolay kurulum** — install-macos.sh + install-macos.command (cift tikla), turkiye_mcp_mac.spec, README macOS bolumu. (v1.6.10)
-- [ ] **10. Bilgisayar/yetki düzeyi araçlar (dikkatli)** — Kullanıcı izniyle yerel araç kullanımı; her kullanıcı için kendini geliştirebilir. Güvenlik onayı zorunlu; en sona, küçük ve denetimli adımlarla.
+- [x] **10. Bilgisayar/yetki düzeyi araçlar (dikkatli)** — computer_tools.py (dosya okuma, dizin listeleme, sistem bilgisi, komut çalıştırma), izin sistemi (varsayılan kapalı), /api/computer/permissions, UI Bilgisayar sekmesi. (v1.6.11)
 
 ## Tamamlananlar (özet)
 - Çalışma alanı (klasör/oturum/dosya kalıcılığı), Ollama Cloud + dinamik modeller, belge zekâsı + çapraz hafıza, avukat personası + skills (9), durdurma butonu, LLM Gateway + failover, araç kataloğu, gerçek emsal karar metni çekme, ticari-olmayan lisans, README ekran galerisi.

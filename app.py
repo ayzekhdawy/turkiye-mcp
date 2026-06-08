@@ -43,11 +43,17 @@ except Exception:
     SKILLS_AVAILABLE = False
 
 try:
-    import memory as memory_mod  # Kullanıcı başına kalıcı bellek
+    import memory as memory_mod
     MEMORY_AVAILABLE = True
 except Exception:
     memory_mod = None
     MEMORY_AVAILABLE = False
+
+try:
+    import computer_tools
+    COMPUTER_TOOLS_AVAILABLE = True
+except Exception:
+    COMPUTER_TOOLS_AVAILABLE = False
 
 try:
     from gateway import LLMGateway  # Merkezi LLM yönlendirme + failover
@@ -712,6 +718,11 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .gw-input:focus{border-color:var(--accent);outline:none}
 .gw-url{flex:1;min-width:0}
 .gw-timeout{width:60px;text-align:center}
+.comp-row{display:flex;align-items:center;justify-content:space-between;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);margin-bottom:8px;font-size:12.5px}
+.comp-main{flex:1;min-width:0}
+.comp-name{font-weight:600;margin-bottom:2px}
+.comp-desc{font-size:11.5px;color:var(--faint)}
+.comp-risk{font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.08)}
 .gw-stat{font-variant-numeric:tabular-nums;color:var(--dim)}
 .gw-ok{color:var(--green)}.gw-bad{color:var(--accent)}
 .fallback-box{display:flex;gap:8px}
@@ -1099,6 +1110,7 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
       <div id="pane-gateway"></div>
       <div id="pane-skills" style="display:none"></div>
       <div id="pane-tools" style="display:none"></div>
+      <div id="pane-computer" style="display:none"></div>
     </div>
     <div class="modal-actions" style="margin-top:18px">
       <button class="btn-primary" onclick="closeSystemPanel()">Kapat</button>
@@ -2128,13 +2140,14 @@ let skillList = [];
 function openSystemPanel(){ document.getElementById('sys-overlay').classList.add('open'); switchPanelTab('gateway'); }
 function closeSystemPanel(){ document.getElementById('sys-overlay').classList.remove('open'); }
 function switchPanelTab(t){
-  ['gateway','skills','tools'].forEach(x=>{
+  ['gateway','skills','tools','computer'].forEach(x=>{
     document.getElementById('tab-'+x).classList.toggle('active', x===t);
     document.getElementById('pane-'+x).style.display = (x===t) ? '' : 'none';
   });
   if (t==='gateway') loadGatewayPane();
   else if (t==='skills') loadSkillsPane();
-  else loadToolsPane();
+  else if (t==='tools') loadToolsPane();
+  else if (t==='computer') loadComputerPane();
 }
 
 async function loadGatewayPane(){
@@ -2361,6 +2374,47 @@ async function loadToolsPane(){
 }
 
 // ===== Modules =====
+async function loadComputerPane(){
+  const pane = document.getElementById('pane-computer');
+  pane.innerHTML = 'Yukleniyor...';
+  try {
+    const data = await (await fetch('/api/computer/permissions')).json();
+    if (!data.available) { pane.innerHTML = '<div class="sk-desc">Bilgisayar araclari kullanilamiyor.</div>'; return; }
+    const perms = data.permissions || {};
+    const riskColors = {low: 'var(--green)', medium: 'var(--accent)', high: '#ff4444'};
+    const riskLabels = {low: 'Dusuk', medium: 'Orta', high: 'Yuksek'};
+    let html = '<div class="tool-cat">Bilgisayar Araclari</div>';
+    html += '<div class="sk-desc" style="margin-bottom:12px">Bu aracllar bilgisayariniza erisim saglar. Guvenlik icin varsayilan olarak kapalidir. Ihtiyaciniz olanlari acik hale getirin.</div>';
+    const keys = Object.keys(perms);
+    keys.forEach(k => {
+      const p = perms[k];
+      const rc = riskColors[p.risk] || 'var(--faint)';
+      const rl = riskLabels[p.risk] || p.risk;
+      html += '<div class="comp-row"><div class="comp-main"><div class="comp-name">' + escapeHtml(p.name) +
+        ' <span class="comp-risk" style="color:' + rc + '">' + rl + '</span></div>' +
+        '<div class="comp-desc">' + escapeHtml(p.desc) + '</div></div>' +
+        '<label class="sw"><input type="checkbox" ' + (p.allowed ? 'checked' : '') +
+        ' data-comp-tool="'+k+'" onchange="toggleComputerToolByAttr(this)"><span class="track"><span class="knob"></span></span></label></div>';
+    });
+    html += '<div class="tool-cat" style="margin-top:16px">Guvenlik Uyarisi</div>';
+    html += '<div class="sk-desc">Komut Calistirma araci <b>yuksek risk</b> tasir. Tehlikeli komutlar otomatik engellenir ancak tum riskleri ortadan kaldirmaz. Dikkatli kullanin.</div>';
+    pane.innerHTML = html;
+  } catch(e) {
+    pane.innerHTML = '<div class="sk-desc">Bilgisayar araclari yuklenemedi.</div>';
+  }
+}
+function toggleComputerToolByAttr(el){ var name=el.getAttribute("data-comp-tool"); toggleComputerTool(name, el.checked); }
+async function toggleComputerTool(name, enabled){
+  try {
+    const perms = {};
+    perms[name] = enabled;
+    const res = await fetch('/api/computer/permissions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({permissions: perms})});
+    const data = await res.json();
+    if (data.status === 'ok') toast(enabled ? (name + ' acildi') : (name + ' kapatildi'));
+    else toast('Hata: ' + (data.error || 'Guncellenemedi'), true);
+  } catch(e) { toast('Izin guncelleme hatasi', true); }
+}
+
 async function loadModules() {
   try {
     const res = await fetch('/health');
@@ -2468,6 +2522,7 @@ async def health_endpoint(request):
             "skills_count": len(skills_engine.load_skills()) if SKILLS_AVAILABLE else 0,
             "workspace": WORKSPACE_AVAILABLE,
             "memory": MEMORY_AVAILABLE,
+            "computer_tools": COMPUTER_TOOLS_AVAILABLE,
             "date": date.today().isoformat(),
         })
     except Exception as e:
@@ -2774,6 +2829,52 @@ TOOL_ROUTING = {
     "kanun": "search_resmi_gazete", "karar": "search_bedesten_unified",
 }
 
+
+
+# --- BILGISAYAR ARAÇLARI (Kullanici izniyle) ---
+if COMPUTER_TOOLS_AVAILABLE:
+    @app.tool(description="Yerel dosya okur (kullanici izni gerekli). Salt-okunur.", annotations={"readOnlyHint": True})
+    async def computer_read_file(path: str = "", max_lines: int = 500) -> str:
+        """Yerel dosya okur.
+
+        Args:
+            path: Dosya yolu
+            max_lines: Maksimum satir sayisi (varsayilan: 500)
+        """
+        try:
+            result = computer_tools.read_file(path, max_lines)
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        except PermissionError as e:
+            return f"IZIN HATASI: {e}"
+        except Exception as e:
+            return f"HATA: {e}"
+
+    @app.tool(description="Dizin icerigini listeler (kullanici izni gerekli). Salt-okunur.", annotations={"readOnlyHint": True})
+    async def computer_list_directory(path: str = "", pattern: str = "*") -> str:
+        """Dizin icerigini listeler.
+
+        Args:
+            path: Dizin yolu
+            pattern: Glob patterni (varsayilan: *)
+        """
+        try:
+            result = computer_tools.list_directory(path, pattern)
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        except PermissionError as e:
+            return f"IZIN HATASI: {e}"
+        except Exception as e:
+            return f"HATA: {e}"
+
+    @app.tool(description="Sistem bilgisi verir (isletim sistemi, CPU, RAM, disk).", annotations={"readOnlyHint": True})
+    async def computer_get_system_info() -> str:
+        """Sistem bilgisi verir."""
+        try:
+            result = computer_tools.get_system_info()
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        except PermissionError as e:
+            return f"IZIN HATASI: {e}"
+        except Exception as e:
+            return f"HATA: {e}"
 
 async def _call_tool(tool_name: str, **kwargs) -> str:
     """MCP araç fonksiyonunu doğrudan çağır."""
@@ -3781,6 +3882,33 @@ async def gateway_config_endpoint(request):
     # JS PROVIDERS'ı da güncelle
     return JSONResponse({"status": "ok", "config": gateway_mod.get_config_snapshot(LLM_PROVIDERS)})
 
+async def computer_permissions_endpoint(request):
+    """Bilgisayar araclari izinlerini yonet — GET: mevcut izinler, POST: guncelle."""
+    if not COMPUTER_TOOLS_AVAILABLE:
+        return JSONResponse({"available": False})
+    if request.method == "GET":
+        perms = computer_tools.load_permissions()
+        descs = computer_tools.TOOL_DESCRIPTIONS
+        result = {}
+        for k, v in perms.items():
+            d = descs.get(k, {})
+            result[k] = {"allowed": v, "name": d.get("name", k), "desc": d.get("desc", ""), "risk": d.get("risk", "unknown"), "category": d.get("category", "")}
+        return JSONResponse({"available": True, "permissions": result})
+    # POST
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Gecersiz JSON"}, status_code=400)
+    new_perms = body.get("permissions", {})
+    current = computer_tools.load_permissions()
+    for k, v in new_perms.items():
+        if k in current:
+            current[k] = bool(v)
+    computer_tools.save_permissions(current)
+    return JSONResponse({"status": "ok", "permissions": current})
+
+
+
 
 # Araç kataloğu — UI'de araçları kategorize göstermek için
 TOOLS_CATALOG = [
@@ -4153,6 +4281,7 @@ starlette_app = Starlette(
         Route("/api/skills/save", skills_save_endpoint, methods=["POST"]),
         Route("/api/gateway/status", gateway_status_endpoint, methods=["GET"]),
         Route("/api/gateway/config", gateway_config_endpoint, methods=["GET", "POST"]),
+        Route("/api/computer/permissions", computer_permissions_endpoint, methods=["GET", "POST"]),
         Route("/api/tools", tools_catalog_endpoint, methods=["GET"]),
         Route("/api/upload/pdf", upload_pdf_endpoint, methods=["POST"]),
         Route("/api/search/refs", search_document_refs_endpoint, methods=["POST"]),
