@@ -809,6 +809,34 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.err{border-color:var(--accent)}
 
+/* ---- copy dropdown ---- */
+.msg-actions{position:relative}
+.copy-menu{position:absolute;bottom:calc(100% + 4px);left:0;min-width:170px;background:var(--s1);border:1px solid var(--border-strong);border-radius:10px;padding:4px;z-index:40;box-shadow:0 8px 24px rgba(0,0,0,.35);animation:rise .15s both;display:none}
+.copy-menu.open{display:block}
+.copy-menu-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:7px;cursor:pointer;font-size:12.5px;color:var(--dim);transition:.12s;white-space:nowrap}
+.copy-menu-item:hover{background:var(--s3);color:var(--text)}
+.copy-menu-item svg{width:14px;height:14px;flex:0 0 auto}
+.copy-menu-sep{height:1px;background:var(--border);margin:4px 8px}
+.copy-chevron-btn{padding:3px 4px !important}
+.copy-chevron-btn svg{width:12px !important;height:12px !important}
+
+/* ---- code blocks ---- */
+.code-block{position:relative;margin:8px 0;border-radius:10px;background:var(--s1);border:1px solid var(--border);overflow:hidden}
+.code-block .code-header{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:var(--s2);border-bottom:1px solid var(--border);font-size:11px;color:var(--faint)}
+.code-block .code-lang{font-family:monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.code-block .code-copy{background:transparent;border:none;color:var(--dim);cursor:pointer;padding:2px 6px;border-radius:4px;display:flex;align-items:center;gap:4px;font-size:11px;transition:.12s}
+.code-block .code-copy:hover{background:var(--s3);color:var(--text)}
+.code-block pre{margin:0;padding:12px;overflow-x:auto;font-family:"Cascadia Code","Fira Code","JetBrains Mono",monospace;font-size:13px;line-height:1.55;color:var(--text)}
+.code-block pre::-webkit-scrollbar{height:5px}
+.code-block pre::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
+
+/* ---- source copy ---- */
+.source-tag{position:relative;cursor:default}
+.source-tag .src-copy{display:inline-flex;align-items:center;margin-left:4px;cursor:pointer;opacity:0;transition:opacity .15s;background:none;border:none;color:var(--accent-hi);padding:0;vertical-align:middle}
+.source-tag:hover .src-copy{opacity:1}
+.sources-copy-all{font-size:11px;color:var(--faint);cursor:pointer;background:none;border:none;padding:2px 0;margin-left:4px;vertical-align:middle;transition:color .12s}
+.sources-copy-all:hover{color:var(--accent-hi)}
+
 @media(max-width:768px){
   .sidebar{width:60px;flex:0 0 60px;padding:12px 8px}
   .brand-name,.brand-sub,.sb-label,.new-chat span,.mod-left span,.mod-count,.folder-row .fname,.folder-row .fcount,.session-row .stitle{display:none}
@@ -1079,7 +1107,10 @@ const ICONS = {
   wrench: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.3-.4-.4-2.3 2.8-2.7z"/>',
   sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
   cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 6.7 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 13.4H3a2 2 0 0 1 0-4h.1A1.6 1.6 0 0 0 5 6.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.6 3V3a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-1.1 2.7H21a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
-  refs: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/>'
+  refs: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/>',
+  clipboard: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>',
+  filetext: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>'
 };
 function ic(name, cls){
   return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || '') + '</svg>';
@@ -1383,13 +1414,22 @@ function renderChat() {
   welcome.style.display = 'none';
   area.querySelectorAll('.msg').forEach(el => el.remove());
 
-  chat.messages.forEach(m => {
+  chat.messages.forEach((m, idx) => {
     const div = document.createElement('div');
     div.className = 'msg ' + m.role;
+    div.setAttribute('data-msg-idx', idx);
     if (m.role === 'assistant') {
       div.innerHTML = '<div class="msg-bubble"><div class="msg-content">' + renderMarkdown(m.text) + '</div>' +
         (m.sources ? renderSources(m.sources) : '') + renderMsgMeta(m) +
-        '<div class="msg-actions"><button onclick="copyMessage(this)" title="Kopyala">' + ic('copy') + '</button><button onclick="exportWord(this)" title="Word olarak indir">' + ic('download') + '</button></div></div>';
+        '<div class="msg-actions">' +
+        '<button data-copy-act="plain" title="Duz metin olarak kopyala">' + ic('copy') + '</button>' +
+        '<button data-copy-act="toggle-menu" title="Kopyalama secenekleri" class="copy-chevron-btn">' + ic('chevron') + '</button>' +
+        '<div class="copy-menu">' +
+        '<div class="copy-menu-item" data-copy-act="plain">' + ic('copy') + ' Duz metin</div>' +
+        '<div class="copy-menu-item" data-copy-act="markdown">' + ic('clipboard') + ' Markdown</div>' +
+        '<div class="copy-menu-sep"></div>' +
+        '<div class="copy-menu-item" data-copy-act="word">' + ic('download') + ' Word olarak indir</div>' +
+        '</div></div></div>';
     } else {
       div.innerHTML = '<div class="msg-bubble">' + escapeHtml(m.text) + (m.sources ? renderSources(m.sources) : '') + '</div>';
     }
@@ -1441,7 +1481,12 @@ function buildDocumentContext() {
 
 function renderSources(sources) {
   if (!sources || sources.length === 0) return '';
-  return '<div class="sources">' + sources.map(s => '<span class="source-tag">' + s + '</span>').join('') + '</div>';
+  const tags = sources.map(s => {
+    const safe = escapeHtml(s);
+    return '<span class="source-tag" data-source="' + safe.replace(/"/g, '&quot;') + '">' + safe +
+      '<button data-copy-act="copy-source" title="Kaynagi kopyala" class="src-copy">' + ic('copy') + '</button></span>';
+  }).join('');
+  return '<div class="sources">' + tags + '<button data-copy-act="copy-all-sources" class="sources-copy-all">Tumunu kopyala</button></div>';
 }
 
 function renderMsgMeta(m) {
@@ -1490,7 +1535,16 @@ function escapeHtml(text) {
 // tarayıcıya ulaşması gereken HER ters bölü ÇİFT yazılır (\\n, \\d, \\* ...).
 function renderMarkdown(text) {
   if (!text) return '';
-  let html = escapeHtml(text);
+  // 1. Extract fenced code blocks before any processing
+  const codeBlocks = [];
+  let processed = text.replace(/```(\\w*)\\n([\\s\\S]*?)```/g, function(match, lang, code) {
+    const idx = codeBlocks.length;
+    codeBlocks.push({lang: lang || '', code: code});
+    return '%%CB_' + idx + '%%';
+  });
+  // 2. Escape HTML
+  let html = escapeHtml(processed);
+  // 3. Standard markdown rules
   html = html.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>');
   html = html.replace(/\\*(.*?)\\*/g, '<em>$1</em>');
   html = html.replace(/^### (.*?)(?:\\n|$)/gm, '<h4>$1</h4>');
@@ -1516,18 +1570,45 @@ function renderMarkdown(text) {
   html = html.replace(/(<\\/table>)<br>/g, '$1');
   html = html.replace(/(<\\/ul>)<br>/g, '$1');
   html = html.replace(/(<hr>)<br>/g, '$1');
+  // 4. Restore fenced code blocks as rendered HTML
+  html = html.replace(/%%CB_(\\d+)%%/g, function(match, idxStr) {
+    const idx = parseInt(idxStr, 10);
+    if (idx >= codeBlocks.length) return match;
+    const block = codeBlocks[idx];
+    const langLabel = block.lang ? '<span class="code-lang">' + escapeHtml(block.lang) + '</span>' : '';
+    const copyBtn = '<button data-copy-act="copy-code" class="code-copy" title="Kopyala">' + ic('copy') + ' Kopyala</button>';
+    return '<div class="code-block"><div class="code-header">' + langLabel + copyBtn + '</div><pre>' + escapeHtml(block.code) + '</pre></div>';
+  });
   return html;
 }
 
-// ===== Copy & Export =====
-function copyMessage(btn) {
+// ===== Multi-format Copy & Export =====
+function getMsgData(el) {
+  const msgEl = el.closest('.msg');
+  if (!msgEl) return null;
+  const idx = parseInt(msgEl.getAttribute('data-msg-idx'), 10);
+  const chat = getActiveChat();
+  if (!chat || !chat.messages || isNaN(idx) || idx < 0 || idx >= chat.messages.length) return null;
+  return chat.messages[idx];
+}
+
+function flashBtn(btn, icon) {
+  btn.innerHTML = ic('check');
+  setTimeout(function() { btn.innerHTML = ic(icon); }, 1500);
+}
+
+function copyAsPlainText(btn) {
   const bubble = btn.closest('.msg-bubble');
   const content = bubble.querySelector('.msg-content');
   const text = content ? content.innerText : bubble.innerText;
-  navigator.clipboard.writeText(text).then(() => {
-    btn.innerHTML = ic('check');
-    setTimeout(() => btn.innerHTML = ic('copy'), 1500);
-  });
+  navigator.clipboard.writeText(text).then(function() { flashBtn(btn, 'copy'); });
+}
+
+function copyAsMarkdown(btn) {
+  const msg = getMsgData(btn);
+  if (!msg) return;
+  const md = msg.text || '';
+  navigator.clipboard.writeText(md).then(function() { flashBtn(btn, 'clipboard'); });
 }
 
 function exportWord(btn) {
@@ -1536,7 +1617,7 @@ function exportWord(btn) {
   const htmlContent = content ? content.innerHTML : bubble.innerHTML;
   const chat = getActiveChat();
   const title = chat ? chat.title : 'TurkiyeMCP';
-  const fullHtml = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title><style>body{font-family:"Segoe UI",Tahoma,sans-serif;font-size:11pt;color:#1a1a2e}table{border-collapse:collapse;width:100%;margin:8pt 0}th,td{border:1px solid #ccc;padding:4pt 8pt;font-size:10pt}th{background:#6366f1;color:#fff}h2{color:#6366f1}h3{color:#818cf8}h4{color:#a5b4fc}code{background:#f1f5f9;padding:1pt 3pt;border-radius:3pt;font-size:10pt}strong{color:#6366f1}em{color:#8b5cf6}</style></head><body>' + htmlContent + '</body></html>';
+  const fullHtml = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title><style>body{font-family:"Segoe UI",Tahoma,sans-serif;font-size:11pt;color:#1a1a2e}table{border-collapse:collapse;width:100%;margin:8pt 0}th,td{border:1px solid #ccc;padding:4pt 8pt;font-size:10pt}th{background:#6366f1;color:#fff}h2{color:#6366f1}h3{color:#818cf8}h4{color:#a5b4fc}code{background:#f1f5f9;padding:1pt 3pt;border-radius:3pt;font-size:10pt}strong{color:#6366f1}em{color:#8b5cf6}pre{background:#f1f5f9;padding:8pt;border-radius:4pt;font-family:Consolas,monospace;font-size:9pt}</style></head><body>' + htmlContent + '</body></html>';
   const blob = new Blob(['﻿', fullHtml], {type: 'application/msword'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1546,13 +1627,93 @@ function exportWord(btn) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  btn.innerHTML = ic('check');
-  setTimeout(() => btn.innerHTML = ic('download'), 1500);
+  flashBtn(btn, 'download');
 }
+
+function toggleCopyMenu(btn) {
+  const actions = btn.closest('.msg-actions');
+  const menu = actions.querySelector('.copy-menu');
+  document.querySelectorAll('.copy-menu.open').forEach(function(m) {
+    if (m !== menu) m.classList.remove('open');
+  });
+  menu.classList.toggle('open');
+}
+
+function copyCodeBlock(btn) {
+  const block = btn.closest('.code-block');
+  const code = block.querySelector('pre');
+  if (!code) return;
+  navigator.clipboard.writeText(code.textContent).then(function() {
+    btn.innerHTML = ic('check') + ' Kopyala';
+    setTimeout(function() { btn.innerHTML = ic('copy') + ' Kopyala'; }, 1500);
+  });
+}
+
+function copySource(btn) {
+  const text = btn.getAttribute('data-source') || '';
+  navigator.clipboard.writeText(text).then(function() {
+    btn.innerHTML = ic('check');
+    setTimeout(function() { btn.innerHTML = ic('copy'); }, 1500);
+  });
+}
+
+function copyAllSources(btn) {
+  const sourcesEl = btn.closest('.sources');
+  if (!sourcesEl) return;
+  const tags = sourcesEl.querySelectorAll('.source-tag');
+  const texts = Array.from(tags).map(function(t) { return t.getAttribute('data-source') || t.textContent.trim(); });
+  navigator.clipboard.writeText(texts.join('\\n')).then(function() {
+    btn.textContent = 'Kopyalandi';
+    setTimeout(function() { btn.textContent = 'Tumunu kopyala'; }, 1500);
+  });
+}
+
+// Close copy menus when clicking outside
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.msg-actions')) {
+    document.querySelectorAll('.copy-menu.open').forEach(function(m) { m.classList.remove('open'); });
+  }
+});
+
+// Delegated click handler for copy actions
+document.getElementById('chat-area').addEventListener('click', function(e) {
+  const actEl = e.target.closest('[data-copy-act]');
+  if (!actEl) return;
+  e.stopPropagation();
+  const act = actEl.getAttribute('data-copy-act');
+  if (act === 'plain') copyAsPlainText(actEl);
+  else if (act === 'markdown') copyAsMarkdown(actEl);
+  else if (act === 'word') exportWord(actEl);
+  else if (act === 'toggle-menu') toggleCopyMenu(actEl);
+  else if (act === 'copy-code') copyCodeBlock(actEl);
+  else if (act === 'copy-source') copySource(actEl);
+  else if (act === 'copy-all-sources') copyAllSources(actEl);
+});
 
 // ===== Send Message =====
 function fill(msg) { document.getElementById('chat-input').value = msg; document.getElementById('chat-input').focus(); autoResize(document.getElementById('chat-input')); }
 function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 140) + 'px'; }
+
+// ===== Paste Handler =====
+(function() {
+  var chatInput = document.getElementById('chat-input');
+  if (!chatInput) return;
+  chatInput.addEventListener('paste', function(e) {
+    var html = e.clipboardData.getData('text/html');
+    if (html) {
+      e.preventDefault();
+      var text = e.clipboardData.getData('text/plain') || '';
+      var start = chatInput.selectionStart;
+      var end = chatInput.selectionEnd;
+      var before = chatInput.value.substring(0, start);
+      var after = chatInput.value.substring(end);
+      chatInput.value = before + text + after;
+      chatInput.selectionStart = chatInput.selectionEnd = start + text.length;
+      autoResize(chatInput);
+    }
+    setTimeout(function() { autoResize(chatInput); }, 0);
+  });
+})();
 
 let currentAbort = null;
 const SEND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>';
