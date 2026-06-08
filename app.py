@@ -864,6 +864,16 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .mem-add-row button{width:26px;height:26px;border-radius:6px;border:none;background:var(--accent);color:#fff;display:grid;place-items:center;cursor:pointer;font-size:13px;flex:0 0 auto}
 .mem-count{font-size:10px;color:var(--faint);background:var(--s2);border:1px solid var(--border);padding:0 5px;border-radius:9999px;min-width:18px;text-align:center}
 
+/* ---- skill save / editor ---- */
+.skill-save-btn{background:rgba(47,191,113,.13)!important;color:var(--green)!important;border:1px solid rgba(47,191,113,.3)!important;padding:2px 8px!important;border-radius:4px!important;display:flex!important;align-items:center!important;gap:4px!important;font-size:11px!important;cursor:pointer!important;margin-left:auto!important}
+.skill-save-btn:hover{background:rgba(47,191,113,.25)!important}
+.sk-add-btn{display:flex;align-items:center;gap:6px;width:100%;padding:10px;border-radius:10px;background:var(--accent-soft);border:1px dashed var(--accent);color:var(--accent);font-size:12.5px;font-weight:600;cursor:pointer;margin-bottom:10px;transition:.12s}
+.sk-add-btn:hover{background:var(--accent);color:#fff}
+.sk-editor{margin-bottom:10px}
+.sk-editor textarea{width:100%;min-height:200px;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);color:var(--text);font-family:monospace;font-size:12px;resize:vertical;outline:none}
+.sk-editor textarea:focus{border-color:rgba(226,59,78,.45);box-shadow:0 0 0 3px var(--accent-soft)}
+.sk-editor-actions{display:flex;gap:8px;margin-top:8px}
+
 @media(max-width:768px){
   .sidebar{width:60px;flex:0 0 60px;padding:12px 8px}
   .brand-name,.brand-sub,.sb-label,.new-chat span,.mod-left span,.mod-count,.folder-row .fname,.folder-row .fcount,.session-row .stitle{display:none}
@@ -1084,6 +1094,21 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
     </div>
     <div class="modal-actions" style="margin-top:18px">
       <button class="btn-primary" onclick="closeSystemPanel()">Kapat</button>
+    </div>
+  </div>
+</div>
+
+<!-- skill confirm modal -->
+<div class="overlay" id="skill-overlay">
+  <div class="modal" style="width:560px">
+    <h2>Skill Kaydet</h2>
+    <div class="modal-sub" id="skill-confirm-name"></div>
+    <div class="sk-editor">
+      <textarea id="skill-confirm-content" placeholder="SKILL.md icerigi..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" data-act="cancel-skill-save">Iptal</button>
+      <button class="btn-primary" data-act="confirm-skill-save">Kaydet</button>
     </div>
   </div>
 </div>
@@ -1425,6 +1450,10 @@ function setupTree() {
     const memId = actEl.getAttribute('data-mem-id');
     if (act === 'add-memory') addMemory();
     else if (act === 'del-memory') deleteMemory(memId);
+    else if (act === 'new-skill') { skillEditorOpen = true; loadSkillsPane(); }
+    else if (act === 'save-new-skill') saveNewSkillFromEditor();
+    else if (act === 'confirm-skill-save') confirmSaveSkill();
+    else if (act === 'cancel-skill-save') closeSkillConfirm();
   });
 })();
 
@@ -1491,6 +1520,7 @@ function renderChat() {
     area.appendChild(div);
   });
   area.scrollTop = area.scrollHeight;
+  detectSkillBlocks();
 }
 
 // ----- Ekli belgeler (chips) -----
@@ -1743,6 +1773,7 @@ document.getElementById('chat-area').addEventListener('click', function(e) {
   else if (act === 'copy-code') copyCodeBlock(actEl);
   else if (act === 'copy-source') copySource(actEl);
   else if (act === 'copy-all-sources') copyAllSources(actEl);
+  else if (act === 'save-skill') saveSkillFromBlock(actEl);
 });
 
 // ===== Send Message =====
@@ -2148,21 +2179,100 @@ function renderFbList(){
 
 async function loadSkillsPane(){
   const pane = document.getElementById('pane-skills');
-  pane.innerHTML = 'Yükleniyor…';
+  pane.innerHTML = 'Yukleniyor...';
   try {
     const data = await (await fetch('/api/skills')).json();
     skillList = data.skills || [];
-    pane.innerHTML = skillList.map((s,i)=>
+    let html = '<button class="sk-add-btn" data-act="new-skill">' + ic('plus') + ' Yeni Skill Olustur</button>';
+    if (skillEditorOpen) {
+      html += '<div class="sk-editor"><textarea id="skill-editor-input" placeholder="---\\nname: Skill Adi\\ndescription: Aciklama\\ntriggers: [anahtar]\\ndoc_types: [belge]\\n---\\nYonerge govdesi"></textarea><div class="sk-editor-actions"><button class="btn-primary" data-act="save-new-skill">Kaydet</button></div></div>';
+    }
+    html += skillList.map((s,i)=>
       '<div class="sk-row"><div class="sk-main"><div class="sk-name">'+escapeHtml(s.name)+'</div>'+
       '<div class="sk-desc">'+escapeHtml(s.description)+'</div></div>'+
       '<label class="sw"><input type="checkbox" '+(s.enabled?'checked':'')+' onchange="toggleSkill('+i+', this.checked)"><span class="track"><span class="knob"></span></span></label></div>'
-    ).join('') || '<div class="sk-desc">Skill bulunamadı.</div>';
-  } catch(e){ pane.innerHTML='<div class="sk-desc">Skills alınamadı.</div>'; }
+    ).join('') || '<div class="sk-desc">Skill bulunamadi.</div>';
+    pane.innerHTML = html;
+  } catch(e){ pane.innerHTML='<div class="sk-desc">Skills alinamadi.</div>'; }
 }
 async function toggleSkill(i, enabled){
   const s = skillList[i]; if(!s) return;
   s.enabled = enabled;
-  try { await fetch('/api/skills/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:s.name, enabled})}); toast(enabled?('⚡ '+s.name+' açıldı'):(s.name+' kapatıldı')); } catch(e){}
+  try { await fetch('/api/skills/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:s.name, enabled})}); toast(enabled?('⚡ '+s.name+' açildi'):(s.name+' kapatildi')); } catch(e){}
+}
+
+// ===== Skill Creation from Chat =====
+let skillEditorOpen = false;
+
+function detectSkillBlocks() {
+  document.querySelectorAll('.code-block').forEach(function(block) {
+    var lang = block.querySelector('.code-lang');
+    if (lang && lang.textContent.toUpperCase() === 'SKILL.MD') {
+      if (block.querySelector('.skill-save-btn')) return;
+      var btn = document.createElement('button');
+      btn.className = 'code-copy skill-save-btn';
+      btn.innerHTML = ic('zap') + ' Skill olarak kaydet';
+      btn.setAttribute('data-copy-act', 'save-skill');
+      block.querySelector('.code-header').appendChild(btn);
+    }
+  });
+}
+
+async function saveSkillFromBlock(btn) {
+  var block = btn.closest('.code-block');
+  var code = block.querySelector('pre');
+  if (!code) return;
+  var content = code.textContent;
+  var nameMatch = content.match(/^name:\\s*(.+)$/m);
+  var skillName = nameMatch ? nameMatch[1].trim() : '';
+  if (!skillName) { toast('Skill adi bulunamadi', true); return; }
+  showSkillConfirm(skillName, content);
+}
+
+function showSkillConfirm(name, content) {
+  document.getElementById('skill-confirm-name').textContent = name;
+  document.getElementById('skill-confirm-content').value = content;
+  document.getElementById('skill-overlay').classList.add('open');
+}
+
+function closeSkillConfirm() {
+  document.getElementById('skill-overlay').classList.remove('open');
+}
+
+async function confirmSaveSkill() {
+  var content = document.getElementById('skill-confirm-content').value;
+  var nameMatch = content.match(/^name:\\s*(.+)$/m);
+  var skillName = nameMatch ? nameMatch[1].trim() : '';
+  if (!skillName || !content) { toast('Skill adi veya icerik eksik', true); return; }
+  try {
+    var res = await fetch('/api/skills/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:skillName, content:content})});
+    var data = await res.json();
+    if (data.status === 'ok') {
+      toast('⚡ Yeni skill kaydedildi: ' + skillName);
+      closeSkillConfirm();
+    } else {
+      toast('Hata: ' + (data.error || 'Kaydedilemedi'), true);
+    }
+  } catch(e) { toast('Kaydetme hatasi', true); }
+}
+
+async function saveNewSkillFromEditor() {
+  var content = document.getElementById('skill-editor-input').value;
+  var nameMatch = content.match(/^name:\\s*(.+)$/m);
+  var skillName = nameMatch ? nameMatch[1].trim() : '';
+  if (!skillName || !content.trim()) { toast('Skill adi veya icerik eksik', true); return; }
+  try {
+    var res = await fetch('/api/skills/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:skillName, content:content})});
+    var data = await res.json();
+    if (data.status === 'ok') {
+      toast('⚡ Yeni skill kaydedildi: ' + skillName);
+      document.getElementById('skill-editor-input').value = '';
+      skillEditorOpen = false;
+      loadSkillsPane();
+    } else {
+      toast('Hata: ' + (data.error || 'Kaydedilemedi'), true);
+    }
+  } catch(e) { toast('Kaydetme hatasi', true); }
 }
 
 async function loadToolsPane(){
@@ -2490,7 +2600,20 @@ YANIT FORMATI:
 - Markdown kullan (tablo, liste, kalın yazı). Kararları daire/esas/karar no ve tarihiyle, her birinin ortaya koyduğu ilkeyle aktar.
 - Hukuki/mali terimleri kısaca açıkla; ilgili mevzuat (kanun/madde) atıflarını ekle.
 - Yanıtı **📋 Kaynak** bölümüyle bitir (kullanılan araç/veri tabanı).
-- Kesin tavsiye değil, bilgilendirme niteliğinde yaz; nihai karar için teyide/avukata yönlendir."""
+- Kesin tavsiye değil, bilgilendirme niteliğinde yaz; nihai karar için teyide/avukata yönlendir.
+
+SKILL OLUŞTURMA: Kullanıcı "yeni skill ekle" veya "skill oluştur" dediğinde, aşağıdaki formatta bir SKILL.md içeriği üret:
+---
+name: <Skill Adı>
+description: <Tek satır açıklama>
+triggers: [anahtar, kelimeler]
+doc_types: [belge, türleri]
+---
+<Markdown body: adım adım uzmanlık yönergesi>
+
+Yanıtında SKILL.md bloğunu ```SKILL.md kod bloğu içinde sun. Triggers, kullanıcının sorusunda geçebilecek tüm Türkçe anahtar kelimeleri içersin.
+
+Kullanıcı "şu skill'i düzenle: <ad>" dediğinde, mevcut skill'in içeriğini güncelleyerek aynı formatta sun."""
 
 
 def _get_llm_config(request) -> tuple[str, str, str]:
@@ -3516,6 +3639,40 @@ async def skills_toggle_endpoint(request):
     return JSONResponse({"status": "ok", "skills": skills_engine.list_skill_meta()})
 
 
+async def skills_content_endpoint(request):
+    """Skill'in tam SKILL.md içeriğini döndür."""
+    if not SKILLS_AVAILABLE:
+        return JSONResponse({"error": "Skills yüklü değil."}, status_code=503)
+    name = request.query_params.get("name", "")
+    if not name:
+        return JSONResponse({"error": "name parametresi gerekli."}, status_code=400)
+    content = skills_engine.get_skill_content(name)
+    if content is None:
+        return JSONResponse({"error": "Skill bulunamadı.", "name": name}, status_code=404)
+    return JSONResponse({"name": name, "content": content})
+
+
+async def skills_save_endpoint(request):
+    """Skill oluştur veya güncelle. Body: {"name": "...", "content": "---\\nname: ...\\n---\\nbody"}"""
+    if not SKILLS_AVAILABLE:
+        return JSONResponse({"error": "Skills yüklü değil."}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    name = body.get("name", "")
+    content = body.get("content", "")
+    if not name or not content:
+        return JSONResponse({"error": "name ve content gerekli."}, status_code=400)
+    try:
+        result = skills_engine.save_skill(name, content)
+        return JSONResponse(result)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 async def gateway_status_endpoint(request):
     """LLM Gateway metrikleri (sağlayıcı başına başarı/başarısızlık/gecikme)."""
     if not GATEWAY_AVAILABLE or GATEWAY is None:
@@ -3878,6 +4035,8 @@ starlette_app = Starlette(
         Route("/api/ollama/models", ollama_models_endpoint, methods=["GET"]),
         Route("/api/skills", skills_endpoint, methods=["GET"]),
         Route("/api/skills/toggle", skills_toggle_endpoint, methods=["POST"]),
+        Route("/api/skills/content", skills_content_endpoint, methods=["GET"]),
+        Route("/api/skills/save", skills_save_endpoint, methods=["POST"]),
         Route("/api/gateway/status", gateway_status_endpoint, methods=["GET"]),
         Route("/api/tools", tools_catalog_endpoint, methods=["GET"]),
         Route("/api/upload/pdf", upload_pdf_endpoint, methods=["POST"]),

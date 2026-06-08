@@ -7,11 +7,12 @@ seçilir ve sistem promptuna enjekte edilir. Böylece model — hangi LLM olursa
 olsun — alan uzmanı bir avukat/mali müşavir gibi yapılandırılmış davranır.
 
 Yeni bir uzmanlık eklemek için skills/ altına bir SKILL.md dosyası eklemek
-yeterlidir.
+yeterlidir. Ayrıca sohbet içinden de yeni skill oluşturulabilir (save_skill).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from typing import Any, Dict, List, Optional
@@ -20,6 +21,26 @@ _SKILLS_CACHE: Optional[List[Dict[str, Any]]] = None
 
 
 def _skills_dir() -> str:
+    """Skills dizini. EXE modunda veya yazılamazsa veri dizinine yazar."""
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
+    if os.path.isdir(base) and os.access(base, os.W_OK):
+        return base
+    # EXE modunda veya yazılamaz — veri dizinine yaz
+    env = os.environ.get("TURKIYE_MCP_DATA_DIR")
+    if env:
+        data_base = os.path.join(env, "skills")
+    else:
+        appdata = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if appdata:
+            data_base = os.path.join(appdata, "TurkiyeMCP", "skills")
+        else:
+            data_base = base
+    os.makedirs(data_base, exist_ok=True)
+    return data_base
+
+
+def _source_skills_dir() -> str:
+    """Paketlenmiş (read-only) skills dizini — EXE'de _MEIPASS altında."""
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills")
 
 
@@ -88,39 +109,56 @@ def _parse_frontmatter(text: str) -> tuple[Dict[str, Any], str]:
     return meta, body
 
 
+def _scan_skills_dir(base: str, skills: List[Dict[str, Any]]) -> None:
+    """Bir skills dizinini tara ve skill'leri listeye ekle."""
+    if not os.path.isdir(base):
+        return
+    seen = {s["name"] for s in skills}
+    for entry in sorted(os.listdir(base)):
+        path = os.path.join(base, entry)
+        md = None
+        if os.path.isdir(path):
+            cand = os.path.join(path, "SKILL.md")
+            if os.path.isfile(cand):
+                md = cand
+        elif entry.lower().endswith(".md"):
+            md = path
+        if not md:
+            continue
+        try:
+            with open(md, "r", encoding="utf-8") as f:
+                meta, body = _parse_frontmatter(f.read())
+            name = meta.get("name", entry)
+            if name in seen:
+                continue  # kullanıcı dizini kaynak dizine göre öncelikli
+            skills.append({
+                "id": meta.get("name") or os.path.splitext(entry)[0],
+                "name": name,
+                "description": meta.get("description", ""),
+                "triggers": [t.lower() for t in (meta.get("triggers") or [])],
+                "doc_types": [d.lower() for d in (meta.get("doc_types") or [])],
+                "body": body.strip(),
+            })
+        except Exception:
+            continue
+
+
 def load_skills(force: bool = False) -> List[Dict[str, Any]]:
-    """skills/ dizinindeki tüm SKILL.md dosyalarını yükler (cache'li)."""
+    """skills/ dizinindeki tüm SKILL.md dosyalarını yükler (cache'li).
+    Önce kullanıcı veri dizini, sonra kaynak dizini tarar."""
     global _SKILLS_CACHE
     if _SKILLS_CACHE is not None and not force:
         return _SKILLS_CACHE
 
     skills: List[Dict[str, Any]] = []
-    base = _skills_dir()
-    if os.path.isdir(base):
-        for entry in sorted(os.listdir(base)):
-            path = os.path.join(base, entry)
-            md = None
-            if os.path.isdir(path):
-                cand = os.path.join(path, "SKILL.md")
-                if os.path.isfile(cand):
-                    md = cand
-            elif entry.lower().endswith(".md"):
-                md = path
-            if not md:
-                continue
-            try:
-                with open(md, "r", encoding="utf-8") as f:
-                    meta, body = _parse_frontmatter(f.read())
-                skills.append({
-                    "id": meta.get("name") or os.path.splitext(entry)[0],
-                    "name": meta.get("name", entry),
-                    "description": meta.get("description", ""),
-                    "triggers": [t.lower() for t in (meta.get("triggers") or [])],
-                    "doc_types": [d.lower() for d in (meta.get("doc_types") or [])],
-                    "body": body.strip(),
-                })
-            except Exception:
-                continue
+    # Kullanıcı dizini öncelikli
+    user_dir = _skills_dir()
+    _scan_skills_dir(user_dir, skills)
+    # Kaynak dizini (farklıysa ekle)
+    src_dir = _source_skills_dir()
+    if os.path.abspath(src_dir) != os.path.abspath(user_dir):
+        _scan_skills_dir(src_dir, skills)
+
     _SKILLS_CACHE = skills
     return skills
 
@@ -166,3 +204,62 @@ def list_skill_meta() -> List[Dict[str, Any]]:
              "triggers": s["triggers"][:8], "doc_types": s["doc_types"],
              "enabled": s["name"] not in disabled}
             for s in load_skills()]
+
+
+def _slugify(name: str) -> str:
+    """Skill adından dosya adı üret (Türkçe → ASCII, boşluk → tire)."""
+    tr_map = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosucgiosu")
+    s = name.translate(tr_map)
+    s = s.lower().strip()
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    return s.strip("-")[:60] or "skill"
+
+
+def get_skill_content(name: str) -> Optional[str]:
+    """Skill'in tam SKILL.md içeriğini döndür (frontmatter + body)."""
+    for base in [_skills_dir(), _source_skills_dir()]:
+        if not os.path.isdir(base):
+            continue
+        for entry in os.listdir(base):
+            path = os.path.join(base, entry)
+            md = None
+            if os.path.isdir(path):
+                cand = os.path.join(path, "SKILL.md")
+                if os.path.isfile(cand):
+                    md = cand
+            elif entry.lower().endswith(".md"):
+                md = path
+            if not md:
+                continue
+            try:
+                with open(md, "r", encoding="utf-8") as f:
+                    content = f.read()
+                meta, _ = _parse_frontmatter(content)
+                if meta.get("name") == name:
+                    return content
+            except Exception:
+                continue
+    return None
+
+
+def save_skill(name: str, content: str) -> dict:
+    """Yeni skill oluştur veya var olanı güncelle. SKILL.md dosyasına yazar."""
+    if not content or not content.strip():
+        raise ValueError("content must not be empty")
+    if not content.strip().startswith("---"):
+        raise ValueError("content must start with YAML frontmatter (---)")
+
+    slug = _slugify(name)
+    skill_dir = os.path.join(_skills_dir(), slug)
+    os.makedirs(skill_dir, exist_ok=True)
+    md_path = os.path.join(skill_dir, "SKILL.md")
+
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    # Cache invalidate
+    global _SKILLS_CACHE
+    _SKILLS_CACHE = None
+    load_skills(force=True)
+
+    return {"status": "ok", "name": name, "path": md_path}
