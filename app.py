@@ -1105,6 +1105,7 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
       <div class="panel-tab active" id="tab-gateway" onclick="switchPanelTab('gateway')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg> Gateway</div>
       <div class="panel-tab" id="tab-skills" onclick="switchPanelTab('skills')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg> Skills</div>
       <div class="panel-tab" id="tab-tools" onclick="switchPanelTab('tools')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.3-.4-.4-2.3 2.8-2.7z"/></svg> Araçlar</div>
+      <div class="panel-tab" id="tab-computer" onclick="switchPanelTab('computer')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg> Bilgisayar</div>
     </div>
     <div class="panel-body">
       <div id="pane-gateway"></div>
@@ -2141,8 +2142,10 @@ function openSystemPanel(){ document.getElementById('sys-overlay').classList.add
 function closeSystemPanel(){ document.getElementById('sys-overlay').classList.remove('open'); }
 function switchPanelTab(t){
   ['gateway','skills','tools','computer'].forEach(x=>{
-    document.getElementById('tab-'+x).classList.toggle('active', x===t);
-    document.getElementById('pane-'+x).style.display = (x===t) ? '' : 'none';
+    const tab = document.getElementById('tab-'+x);
+    const pane = document.getElementById('pane-'+x);
+    if (tab) tab.classList.toggle('active', x===t);
+    if (pane) pane.style.display = (x===t) ? '' : 'none';
   });
   if (t==='gateway') loadGatewayPane();
   else if (t==='skills') loadSkillsPane();

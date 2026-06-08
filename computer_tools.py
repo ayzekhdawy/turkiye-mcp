@@ -138,9 +138,9 @@ def _check_path_safety(path: str) -> None:
 def read_file(path: str, max_lines: int = 500) -> Dict[str, Any]:
     """Yerel dosya oku (salt-okunur)."""
     require_permission("read_file")
+    _check_path_safety(path)
     if not os.path.isfile(path):
         raise FileNotFoundError(f"Dosya bulunamadi: {path}")
-    _check_path_safety(path)
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()[:max_lines]
@@ -157,9 +157,9 @@ def read_file(path: str, max_lines: int = 500) -> Dict[str, Any]:
 def list_directory(path: str, pattern: str = "*") -> Dict[str, Any]:
     """Dizin icerigini listele."""
     require_permission("list_directory")
+    _check_path_safety(path)
     if not os.path.isdir(path):
         raise NotADirectoryError(f"Dizin bulunamadi: {path}")
-    _check_path_safety(path)
     import glob as glob_mod
     entries = glob_mod.glob(os.path.join(path, pattern))
     result = []

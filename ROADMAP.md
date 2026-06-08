@@ -24,5 +24,8 @@
 - [x] **9. macOS kolay kurulum** — install-macos.sh + install-macos.command (cift tikla), turkiye_mcp_mac.spec, README macOS bolumu. (v1.6.10)
 - [x] **10. Bilgisayar/yetki düzeyi araçlar (dikkatli)** — computer_tools.py (dosya okuma, dizin listeleme, sistem bilgisi, komut çalıştırma), izin sistemi (varsayılan kapalı), /api/computer/permissions, UI Bilgisayar sekmesi. (v1.6.11)
 
+## Doğrulama (v1.6.12)
+Tüm v1.6.5–v1.6.11 özellikleri test edildi. Bulunan kusurlar giderildi: sistem panelini tamamen kıran eksik `tab-computer` sekmesi eklendi + sekme geçişi sağlamlaştırıldı; computer_tools yol-güvenliği sıralaması sertleştirildi; memory/computer_tools spec'e eklendi. Bellek enjeksiyonu, skill kaydet/oku, gateway config, bilgisayar izinleri/engellemeleri, token ölçümü işlevsel doğrulandı.
+
 ## Tamamlananlar (özet)
 - Çalışma alanı (klasör/oturum/dosya kalıcılığı), Ollama Cloud + dinamik modeller, belge zekâsı + çapraz hafıza, avukat personası + skills (9), durdurma butonu, LLM Gateway + failover, araç kataloğu, gerçek emsal karar metni çekme, ticari-olmayan lisans, README ekran galerisi.

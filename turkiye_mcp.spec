@@ -150,6 +150,9 @@ hidden_imports = [
     "skills",
     # LLM Gateway (failover + metrik)
     "gateway",
+    # Bellek + bilgisayar/yetki düzeyi araçlar
+    "memory",
+    "computer_tools",
     # Keyring
     "keyring",
     "keyring.backends",
