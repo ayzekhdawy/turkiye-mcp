@@ -56,8 +56,27 @@ def list_memories() -> list[dict]:
     return data.get("memories", [])
 
 
-def add_memory(category: str, content: str) -> dict:
-    """Yeni bellek kaydı ekle. category: preference|fact|instruction."""
+def _normalize(s: str) -> str:
+    return " ".join((s or "").lower().split())
+
+
+def has_similar(content: str) -> bool:
+    """Aynı/çok benzer bir kayıt zaten var mı? (tekrar engelleme)"""
+    nc = _normalize(content)
+    if not nc:
+        return True
+    for m in list_memories():
+        ec = _normalize(m.get("content", ""))
+        if ec == nc or (len(nc) > 12 and (nc in ec or ec in nc)):
+            return True
+    return False
+
+
+def add_memory(category: str, content: str, source: str = "manual") -> dict:
+    """Yeni bellek kaydı ekle. category: preference|fact|instruction.
+
+    source: 'manual' (kullanıcı ekledi) veya 'auto' (sohbetten öğrenildi).
+    """
     if category not in ("preference", "fact", "instruction"):
         raise ValueError("category must be preference, fact, or instruction")
     if not content or not content.strip():
@@ -67,6 +86,7 @@ def add_memory(category: str, content: str) -> dict:
         "id": "mem_" + uuid.uuid4().hex[:8],
         "category": category,
         "content": content.strip(),
+        "source": source if source in ("manual", "auto") else "manual",
         "created": now,
         "updated": now,
     }

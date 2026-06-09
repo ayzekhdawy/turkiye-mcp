@@ -24,6 +24,9 @@
 - [x] **9. macOS kolay kurulum** — install-macos.sh + install-macos.command (cift tikla), turkiye_mcp_mac.spec, README macOS bolumu. (v1.6.10)
 - [x] **10. Bilgisayar/yetki düzeyi araçlar (dikkatli)** — computer_tools.py (dosya okuma, dizin listeleme, sistem bilgisi, komut çalıştırma), izin sistemi (varsayılan kapalı), /api/computer/permissions, UI Bilgisayar sekmesi. (v1.6.11)
 
+## Öğrenen bellek (v1.7.0)
+Bellek artık sohbetlerden otomatik öğreniyor: her yanıt sonrası son görüşmeden kalıcı kullanıcı bilgisi/tercihi/talimatı arka planda çıkarılıp (LLM ile) `source=auto` olarak eklenir, tekrar engellenir, `oto` rozetiyle gösterilir, Tercihler'den açılıp kapatılır. Sonraki yanıtlara enjekte edilir → adaptif asistan. `/api/memory/learn` + `memory.has_similar` + `add_memory(source=...)`.
+
 ## Doğrulama (v1.6.12)
 Tüm v1.6.5–v1.6.11 özellikleri test edildi. Bulunan kusurlar giderildi: sistem panelini tamamen kıran eksik `tab-computer` sekmesi eklendi + sekme geçişi sağlamlaştırıldı; computer_tools yol-güvenliği sıralaması sertleştirildi; memory/computer_tools spec'e eklendi. Bellek enjeksiyonu, skill kaydet/oku, gateway config, bilgisayar izinleri/engellemeleri, token ölçümü işlevsel doğrulandı.
 

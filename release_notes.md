@@ -1,15 +1,19 @@
-## 🇹🇷 Türkiye MCP v1.6.12 — Düzeltmeler & Doğrulama
+## 🇹🇷 Türkiye MCP v1.7.0 — Öğrenen Bellek (Adaptif Asistan)
 
-v1.6.5–v1.6.11 özellikleri (kopyala/yapıştır, bellek, sohbet içi skill, gateway özelleştirme, EXE hızlı açılış, macOS kurulum, bilgisayar araçları) test edildi; tespit edilen kusurlar giderildi.
+Bellek artık yalnızca elle eklenmiyor; **sohbetlerden otomatik öğreniyor** ve asistan kullanıcının davranışına göre şekilleniyor.
 
-### 🐞 Düzeltmeler
-- **Kritik:** Sistem paneli açılışta çöküyordu — "Bilgisayar" sekmesi için sekme düğmesi eksikti (`tab-computer`), bu yüzden panel hiç açılamıyordu. Sekme eklendi ve sekme geçişi eksik elemana karşı sağlamlaştırıldı. Artık Gateway/Skills/Araçlar/Bilgisayar sekmelerinin tümü erişilebilir.
-- **Güvenlik sertleştirme:** `read_file`/`list_directory` artık hassas yol kontrolünü dosya varlık kontrolünden ÖNCE yapıyor (hassas dosya varlığını sızdırmama).
-- EXE derlemesi: `memory` ve `computer_tools` modülleri spec'e açıkça eklendi.
+### 🧠 Otomatik Bellek (sohbetlerden öğrenme)
+- Her yanıttan sonra, son görüşmeden **kalıcı kullanıcı bilgileri/tercihleri/talimatları** otomatik çıkarılır ve belleğe eklenir (örn. *"Ankara'da çalışan iş hukuku avukatı"*, *"yanıtları kısa ve madde madde tercih ediyor"*).
+- Bu çıkarım **arka planda** çalışır — yanıt hızını yavaşlatmaz.
+- Otomatik öğrenilen kayıtlar kenar çubuğunda **`oto`** rozetiyle gösterilir; istediğinizi silebilirsiniz.
+- **Tekrar engelleme:** aynı/benzer bilgi iki kez eklenmez.
+- **Ayarlar → Tercihler → Otomatik bellek** ile açılıp kapatılabilir (varsayılan: açık).
+- Öğrenilen bilgiler, sonraki tüm yanıtlarda bağlama enjekte edilir → asistan sizi tanır ve buna göre davranır.
 
-### ✅ Doğrulanan özellikler (test edildi)
-- Bellek: ekleme + sohbete enjeksiyon çalışıyor (asistan kullanıcının adını/alanını hatırlıyor).
-- Skill kaydet/oku, Gateway sunucu yapılandırması, bilgisayar izinleri (varsayılan kapalı), tehlikeli komut/hassas yol engelleme, token & bağlam ölçümü — hepsi işlevsel.
+### 🐞 Düzeltme (v1.6.12'den)
+- Sistem panelini açılışta çökerten eksik "Bilgisayar" sekmesi düzeltildi; computer_tools güvenlik sıralaması sertleştirildi.
 
 ### 📥 İndirme
 - **TurkiyeMCP.exe** — Windows 10/11 (64-bit), kurulumsuz.
+
+> ⚠️ Bellek yalnızca cihazınızda saklanır. Hassas bilgileri istemiyorsanız otomatik belleği kapatabilir veya kayıtları silebilirsiniz.

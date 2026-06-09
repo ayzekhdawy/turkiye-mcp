@@ -873,8 +873,10 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .mem-badge.preference{background:rgba(99,102,241,.15);color:#818cf8}
 .mem-badge.fact{background:rgba(34,197,94,.15);color:#22c55e}
 .mem-badge.instruction{background:rgba(251,146,60,.15);color:#fb923c}
+.mem-item .mem-auto{font-size:8.5px;text-transform:uppercase;letter-spacing:.04em;padding:1px 4px;border-radius:4px;flex:0 0 auto;margin-top:1px;background:var(--accent-soft);color:var(--accent-hi)}
 .mem-item .mem-text{flex:1;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.mem-item .mem-del{opacity:0;cursor:pointer;font-size:11px;color:var(--faint);flex:0 0 auto}
+.mem-item .mem-del{opacity:0;cursor:pointer;font-size:11px;color:var(--faint);flex:0 0 auto;display:grid;place-items:center}
+.mem-item .mem-del svg.ico{width:12px;height:12px}
 .mem-item:hover .mem-del{opacity:.7}
 .mem-item:hover .mem-del:hover{color:var(--accent)}
 .mem-add-row{display:flex;gap:4px;padding:6px 9px}
@@ -1084,6 +1086,13 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
         <input type="number" id="gw-timeout" min="0" max="600" step="10" placeholder="0" />
       </div>
       <div class="field">
+        <label>Otomatik bellek <span style="font-weight:400;color:var(--faint)">(sohbetlerden öğren)</span></label>
+        <select id="auto-memory">
+          <option value="1">Açık — kalıcı bilgileri otomatik hatırla</option>
+          <option value="0">Kapalı</option>
+        </select>
+      </div>
+      <div class="field">
         <label>Veri dizini <span style="font-weight:400;color:var(--faint)">(salt okunur)</span></label>
         <input type="text" id="data-dir" readonly style="opacity:.7;font-size:12px" />
       </div>
@@ -1171,6 +1180,7 @@ function getFallbacks(){ return fallbacks; }
 let currentTheme = localStorage.getItem('ui-theme') || 'dark';
 let tokenBudget = parseInt(localStorage.getItem('token-budget') || '0', 10) || 0;
 let gwTimeout = parseInt(localStorage.getItem('gw-timeout') || '0', 10) || 0;
+let autoMemory = localStorage.getItem('auto-memory') !== '0'; // varsayılan açık
 let budgetWarned = false;
 function applyTheme(v){
   currentTheme = v || 'dark';
@@ -1924,6 +1934,8 @@ async function sendMessage() {
         chat.tokenTotal = (chat.tokenTotal || 0) + data.usage.total;
         updateTokenChip();
       }
+      // Otomatik bellek: son görüşmeden kalıcı bilgi öğren (arka planda)
+      if (autoMemory) learnFromConversation(msg, data.response, provider, model, apiKey);
     }
   } catch(e) {
     const ti = document.getElementById('typing-indicator');
@@ -2036,6 +2048,7 @@ function loadConfig() {
   document.getElementById('ui-theme').value = currentTheme;
   document.getElementById('token-budget').value = tokenBudget || '';
   document.getElementById('gw-timeout').value = gwTimeout || '';
+  document.getElementById('auto-memory').value = autoMemory ? '1' : '0';
   fetch('/api/workspace').then(r=>r.json()).then(d=>{
     const el = document.getElementById('data-dir'); if (el) el.value = d.dataDir || '—';
   }).catch(()=>{});
@@ -2091,9 +2104,11 @@ async function saveConfig() {
   currentTheme = document.getElementById('ui-theme').value;
   tokenBudget = parseInt(document.getElementById('token-budget').value || '0', 10) || 0;
   gwTimeout = parseInt(document.getElementById('gw-timeout').value || '0', 10) || 0;
+  autoMemory = document.getElementById('auto-memory').value === '1';
   localStorage.setItem('ui-theme', currentTheme);
   localStorage.setItem('token-budget', String(tokenBudget));
   localStorage.setItem('gw-timeout', String(gwTimeout));
+  localStorage.setItem('auto-memory', autoMemory ? '1' : '0');
   applyTheme(currentTheme);
   budgetWarned = false;
   // keyring (yerel mod) — best effort
@@ -2452,6 +2467,26 @@ async function loadMemories() {
   } catch(e) { memories = []; renderMemories(); }
 }
 
+// Sohbetten otomatik bellek öğrenme (arka planda, yanıtı yavaşlatmaz)
+function learnFromConversation(userMsg, assistantMsg, provider, model, apiKey) {
+  if (!userMsg || !assistantMsg) return;
+  const headers = {'Content-Type': 'application/json'};
+  headers['X-LLM-Provider'] = provider; headers['X-LLM-Model'] = model;
+  if (apiKey && PROVIDERS[provider] && PROVIDERS[provider].needs_key) headers['X-API-Key'] = apiKey;
+  fetch('/api/memory/learn', { method: 'POST', headers, body: JSON.stringify({
+    provider, model, api_key: apiKey, api_keys: apiKeys,
+    history: [{role:'user', text:userMsg}, {role:'assistant', text:assistantMsg}]
+  }) })
+  .then(r => r.json())
+  .then(d => {
+    if (d.added && d.added.length) {
+      loadMemories();
+      toast('🧠 Belleğe eklendi: ' + d.added.map(a=>a.content).join(' · ').slice(0,80));
+    }
+  })
+  .catch(()=>{});
+}
+
 function renderMemories() {
   const list = document.getElementById('memory-list');
   const count = document.getElementById('mem-count');
@@ -2462,10 +2497,11 @@ function renderMemories() {
   }
   const catLabels = {preference:'tercih', fact:'olgu', instruction:'talimat'};
   list.innerHTML = memories.map(function(m) {
+    const auto = (m.source === 'auto') ? '<span class="mem-auto" title="Sohbetten otomatik öğrenildi">oto</span>' : '';
     return '<div class="mem-item" data-mem-id="' + m.id + '">' +
-      '<span class="mem-badge ' + m.category + '">' + (catLabels[m.category]||m.category) + '</span>' +
+      '<span class="mem-badge ' + m.category + '">' + (catLabels[m.category]||m.category) + '</span>' + auto +
       '<span class="mem-text">' + escapeHtml(m.content) + '</span>' +
-      '<span class="mem-del" data-act="del-memory" data-mem-id="' + m.id + '">x</span></div>';
+      '<span class="mem-del" data-act="del-memory" data-mem-id="' + m.id + '">' + ic('x') + '</span></div>';
   }).join('');
 }
 
@@ -3778,6 +3814,111 @@ async def memory_delete_endpoint(request):
     return JSONResponse({"status": "ok" if ok else "notfound"})
 
 
+_MEMORY_EXTRACT_PROMPT = (
+    "Sen bir bellek çıkarım yardımcısısın. Verilen kullanıcı-asistan görüşmesinden, "
+    "GELECEKTE hatırlanmaya değer KALICI kullanıcı bilgilerini çıkar:\n"
+    "- preference: kullanıcının kalıcı tercihleri (ör. 'kısa ve madde madde yanıt sever')\n"
+    "- fact: kullanıcı hakkında kalıcı olgular (ör. 'ceza hukuku avukatı', 'adı Zeynep')\n"
+    "- instruction: kullanıcının asistana verdiği kalıcı talimatlar (ör. 'her yanıtta mevzuat maddesi ver')\n\n"
+    "KURALLAR: Sadece KALICI ve genel bilgileri al; tek seferlik sorular, geçici konular veya "
+    "asistanın kendi bilgisi DEĞİL. Hiçbir kalıcı bilgi yoksa boş dizi döndür. "
+    "SADECE şu biçimde geçerli JSON döndür, başka metin yazma:\n"
+    '[{"category":"fact","content":"..."}]'
+)
+
+
+def _parse_json_array(text: str):
+    import json as _json
+    t = (text or "").strip()
+    if "```" in t:
+        # kod bloğu içindeki JSON'u al
+        import re as _re
+        m = _re.search(r"```(?:json)?\s*(.*?)```", t, _re.S)
+        if m:
+            t = m.group(1).strip()
+    a, b = t.find("["), t.rfind("]")
+    if a == -1 or b == -1 or b < a:
+        return []
+    try:
+        data = _json.loads(t[a:b + 1])
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+async def memory_learn_endpoint(request):
+    """Son görüşmeden kalıcı kullanıcı bilgisi çıkarıp otomatik belleğe ekler.
+
+    Body: {history:[{role,text}], provider, model, api_key}
+    Yanıtı yavaşlatmamak için frontend bunu arka planda (fire-and-forget) çağırır.
+    """
+    if not MEMORY_AVAILABLE or not GATEWAY_AVAILABLE:
+        return JSONResponse({"added": []})
+    provider_id, api_key, model = _get_llm_config(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if body.get("provider"):
+        provider_id = body["provider"].lower()
+    if body.get("api_key"):
+        api_key = body["api_key"]
+    if body.get("model"):
+        model = body["model"]
+    if provider_id not in LLM_PROVIDERS:
+        return JSONResponse({"added": []})
+    pc = LLM_PROVIDERS[provider_id]
+    if pc["needs_key"] and not api_key:
+        return JSONResponse({"added": []})
+
+    raw_history = body.get("history") or []
+    convo = []
+    for h in raw_history[-8:]:
+        role = "Kullanıcı" if h.get("role") == "user" else "Asistan"
+        txt = (h.get("text") or h.get("content") or "").strip()
+        if txt:
+            convo.append(f"{role}: {txt[:1200]}")
+    if not convo:
+        return JSONResponse({"added": []})
+
+    api_keys_map = {provider_id: api_key}
+    for k, v in (body.get("api_keys") or {}).items():
+        if v:
+            api_keys_map[(k or "").lower()] = v
+
+    try:
+        result = await GATEWAY.complete(
+            system=_MEMORY_EXTRACT_PROMPT,
+            history=[],
+            message="GÖRÜŞME:\n" + "\n".join(convo),
+            chain=[{"provider": provider_id, "model": model}],
+            api_keys=api_keys_map,
+            timeout_for=lambda pid: 60,
+        )
+    except Exception:
+        return JSONResponse({"added": []})
+    if result.get("error"):
+        return JSONResponse({"added": []})
+
+    items = _parse_json_array(result.get("reply", ""))
+    added = []
+    for it in items[:4]:
+        if not isinstance(it, dict):
+            continue
+        cat = (it.get("category") or "").strip().lower()
+        content = (it.get("content") or "").strip()
+        if cat not in ("preference", "fact", "instruction") or len(content) < 4:
+            continue
+        if memory_mod.has_similar(content):
+            continue
+        try:
+            entry = memory_mod.add_memory(cat, content, source="auto")
+            added.append({"category": cat, "content": content, "id": entry["id"]})
+        except Exception:
+            continue
+    return JSONResponse({"added": added})
+
+
 async def ollama_models_endpoint(request):
     """Yerel Ollama'da yüklü modelleri listeler (cloud proxy modelleri dahil).
 
@@ -4301,6 +4442,7 @@ starlette_app = Starlette(
         Route("/api/memory", memory_add_endpoint, methods=["POST"]),
         Route("/api/memory/update", memory_update_endpoint, methods=["POST"]),
         Route("/api/memory/delete", memory_delete_endpoint, methods=["POST"]),
+        Route("/api/memory/learn", memory_learn_endpoint, methods=["POST"]),
         Mount("/", app=mcp_asgi),
     ],
 )
