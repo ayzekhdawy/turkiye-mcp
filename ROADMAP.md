@@ -24,6 +24,9 @@
 - [x] **9. macOS kolay kurulum** — install-macos.sh + install-macos.command (cift tikla), turkiye_mcp_mac.spec, README macOS bolumu. (v1.6.10)
 - [x] **10. Bilgisayar/yetki düzeyi araçlar (dikkatli)** — computer_tools.py (dosya okuma, dizin listeleme, sistem bilgisi, komut çalıştırma), izin sistemi (varsayılan kapalı), /api/computer/permissions, UI Bilgisayar sekmesi. (v1.6.11)
 
+## Bellek komutları + daraltılabilir sidebar (v1.7.1)
+Sohbet-içi "unut" komutu: learn endpoint mevcut belleği prompt'a verir, `{add, forget}` döndürür; istenen kayıtlar silinir. Daha seçici çıkarım promptu. `/api/memory/clear` + sidebar 🗑 temizle. Daraltılabilir kenar çubuğu: `.shell.sidebar-collapsed` (264↔66px), `toggleSidebar()`, localStorage'da kalıcı.
+
 ## Öğrenen bellek (v1.7.0)
 Bellek artık sohbetlerden otomatik öğreniyor: her yanıt sonrası son görüşmeden kalıcı kullanıcı bilgisi/tercihi/talimatı arka planda çıkarılıp (LLM ile) `source=auto` olarak eklenir, tekrar engellenir, `oto` rozetiyle gösterilir, Tercihler'den açılıp kapatılır. Sonraki yanıtlara enjekte edilir → adaptif asistan. `/api/memory/learn` + `memory.has_similar` + `add_memory(source=...)`.
 

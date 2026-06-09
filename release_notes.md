@@ -1,19 +1,15 @@
-## 🇹🇷 Türkiye MCP v1.7.0 — Öğrenen Bellek (Adaptif Asistan)
+## 🇹🇷 Türkiye MCP v1.7.1 — Sohbet-içi Bellek Komutları & Daraltılabilir Kenar Çubuğu
 
-Bellek artık yalnızca elle eklenmiyor; **sohbetlerden otomatik öğreniyor** ve asistan kullanıcının davranışına göre şekilleniyor.
+### 🧠 Sohbet-içi bellek komutları
+- **"Unut":** Sohbette *"bunu unut"*, *"X bilgisini sil"* dediğinizde asistan ilgili bellek kaydını otomatik bulur ve siler (yalnızca açıkça istediğinizde — diğer kayıtlara dokunmaz).
+- **Daha seçici öğrenme:** Otomatik bellek artık yalnızca gerçekten kalıcı ve değerli bilgileri ekler; sıradan sohbeti/geçici konuları atlar.
+- **Bellek → Temizle:** Kenar çubuğundaki bellek başlığında 🗑 ile tüm kayıtları tek tıkla silme.
+- Öğrenilen/unutulan bilgiler arka planda işlenir, yanıtı yavaşlatmaz.
 
-### 🧠 Otomatik Bellek (sohbetlerden öğrenme)
-- Her yanıttan sonra, son görüşmeden **kalıcı kullanıcı bilgileri/tercihleri/talimatları** otomatik çıkarılır ve belleğe eklenir (örn. *"Ankara'da çalışan iş hukuku avukatı"*, *"yanıtları kısa ve madde madde tercih ediyor"*).
-- Bu çıkarım **arka planda** çalışır — yanıt hızını yavaşlatmaz.
-- Otomatik öğrenilen kayıtlar kenar çubuğunda **`oto`** rozetiyle gösterilir; istediğinizi silebilirsiniz.
-- **Tekrar engelleme:** aynı/benzer bilgi iki kez eklenmez.
-- **Ayarlar → Tercihler → Otomatik bellek** ile açılıp kapatılabilir (varsayılan: açık).
-- Öğrenilen bilgiler, sonraki tüm yanıtlarda bağlama enjekte edilir → asistan sizi tanır ve buna göre davranır.
-
-### 🐞 Düzeltme (v1.6.12'den)
-- Sistem panelini açılışta çökerten eksik "Bilgisayar" sekmesi düzeltildi; computer_tools güvenlik sıralaması sertleştirildi.
+### ↔️ Daraltılabilir Kenar Çubuğu
+- Marka satırındaki ok ile sol kenar çubuğunu **daraltıp genişletebilirsiniz** (264px ↔ 66px).
+- Daraltıldığında ince bir ray kalır (yeni sohbet / yeni klasör / genişlet); sohbet alanı genişler.
+- Tercih hatırlanır (kapatıp açınca aynı kalır).
 
 ### 📥 İndirme
 - **TurkiyeMCP.exe** — Windows 10/11 (64-bit), kurulumsuz.
-
-> ⚠️ Bellek yalnızca cihazınızda saklanır. Hassas bilgileri istemiyorsanız otomatik belleği kapatabilir veya kayıtları silebilirsiniz.

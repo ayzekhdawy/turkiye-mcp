@@ -56,6 +56,15 @@ def list_memories() -> list[dict]:
     return data.get("memories", [])
 
 
+def clear_all() -> int:
+    """Tüm bellek kayıtlarını sil. Silinen adedi döndürür."""
+    with _LOCK:
+        data = _read_json(_data_path(), {"memories": []})
+        n = len(data.get("memories", []))
+        _write_json(_data_path(), {"memories": []})
+    return n
+
+
 def _normalize(s: str) -> str:
     return " ".join((s or "").lower().split())
 

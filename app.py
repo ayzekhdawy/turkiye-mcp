@@ -877,6 +877,10 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .mem-item .mem-text{flex:1;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .mem-item .mem-del{opacity:0;cursor:pointer;font-size:11px;color:var(--faint);flex:0 0 auto;display:grid;place-items:center}
 .mem-item .mem-del svg.ico{width:12px;height:12px}
+.mem-clear{margin-left:auto;opacity:0;cursor:pointer;color:var(--faint);display:grid;place-items:center}
+.sb-section-header:hover .mem-clear{opacity:.55}
+.mem-clear:hover{opacity:1 !important;color:var(--accent)}
+.mem-clear svg.ico{width:13px;height:13px;display:block}
 .mem-item:hover .mem-del{opacity:.7}
 .mem-item:hover .mem-del:hover{color:var(--accent)}
 .mem-add-row{display:flex;gap:4px;padding:6px 9px}
@@ -894,6 +898,25 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
 .sk-editor textarea{width:100%;min-height:200px;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);color:var(--text);font-family:monospace;font-size:12px;resize:vertical;outline:none}
 .sk-editor textarea:focus{border-color:rgba(226,59,78,.45);box-shadow:0 0 0 3px var(--accent-soft)}
 .sk-editor-actions{display:flex;gap:8px;margin-top:8px}
+
+/* ---- daraltılabilir kenar çubuğu ---- */
+.sidebar{transition:width .18s cubic-bezier(.2,.7,.2,1),flex-basis .18s cubic-bezier(.2,.7,.2,1)}
+.brand{display:flex;align-items:center;gap:11px}
+.brand-text{flex:1;min-width:0}
+.sb-collapse{margin-left:auto;width:26px;height:26px;flex:0 0 auto;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--faint);display:grid;place-items:center;cursor:pointer;transition:.12s}
+.sb-collapse:hover{background:var(--s2);color:var(--text)}
+.sb-collapse svg{transition:transform .2s}
+.shell.sidebar-collapsed .sidebar{width:66px;flex:0 0 66px;padding:16px 10px}
+.shell.sidebar-collapsed .brand{justify-content:center;flex-direction:column;gap:10px}
+.shell.sidebar-collapsed .brand-text,
+.shell.sidebar-collapsed .tree-wrap,
+.shell.sidebar-collapsed #memory-section,
+.shell.sidebar-collapsed .modules,
+.shell.sidebar-collapsed .new-chat span{display:none}
+.shell.sidebar-collapsed .sb-actions{flex-direction:column;gap:8px}
+.shell.sidebar-collapsed .new-chat{padding:11px;justify-content:center}
+.shell.sidebar-collapsed .sb-collapse{margin:0}
+.shell.sidebar-collapsed .sb-collapse svg{transform:rotate(180deg)}
 
 @media(max-width:768px){
   .sidebar{width:60px;flex:0 0 60px;padding:12px 8px}
@@ -919,10 +942,13 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark">TR</div>
-      <div>
+      <div class="brand-text">
         <div class="brand-name">Türkiye MCP</div>
         <div class="brand-sub">Yerel · veriler cihazınızda</div>
       </div>
+      <button class="sb-collapse" id="sb-collapse-btn" title="Kenar çubuğunu daralt/genişlet" onclick="toggleSidebar()">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
     </div>
 
     <div class="sb-actions">
@@ -944,6 +970,7 @@ body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-
       <div class="sb-section-header" data-act="toggle-mem-section">
         <div class="sb-label">🧠 Bellek</div>
         <span class="mem-count" id="mem-count"></span>
+        <span class="mem-clear" title="Belleği temizle" onclick="event.stopPropagation();clearMemories()"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></span>
       </div>
       <div id="memory-list"></div>
       <div class="mem-add-row">
@@ -1186,6 +1213,18 @@ function applyTheme(v){
   currentTheme = v || 'dark';
   document.body.classList.toggle('light', currentTheme === 'light');
   localStorage.setItem('ui-theme', currentTheme);
+}
+
+// Daraltılabilir kenar çubuğu
+let sidebarCollapsed = localStorage.getItem('sidebar-collapsed') === '1';
+function applySidebar(){
+  const shell = document.querySelector('.shell');
+  if (shell) shell.classList.toggle('sidebar-collapsed', sidebarCollapsed);
+}
+function toggleSidebar(){
+  sidebarCollapsed = !sidebarCollapsed;
+  localStorage.setItem('sidebar-collapsed', sidebarCollapsed ? '1' : '0');
+  applySidebar();
 }
 
 // ===== Profesyonel ikon seti (lucide tarzı, tek tip çizgi ikonlar) =====
@@ -2479,12 +2518,17 @@ function learnFromConversation(userMsg, assistantMsg, provider, model, apiKey) {
   }) })
   .then(r => r.json())
   .then(d => {
-    if (d.added && d.added.length) {
-      loadMemories();
-      toast('🧠 Belleğe eklendi: ' + d.added.map(a=>a.content).join(' · ').slice(0,80));
-    }
+    const addN = (d.added||[]).length, forgN = (d.forgotten||[]).length;
+    if (addN || forgN) loadMemories();
+    if (addN) toast('🧠 Belleğe eklendi: ' + d.added.map(a=>a.content).join(' · ').slice(0,70));
+    if (forgN) toast('🧠 ' + forgN + ' bilgi unutuldu');
   })
   .catch(()=>{});
+}
+
+async function clearMemories() {
+  if (!confirm('Tüm bellek kayıtları silinsin mi?')) return;
+  try { await fetch('/api/memory/clear', {method:'POST'}); loadMemories(); toast('Bellek temizlendi'); } catch(e){}
 }
 
 function renderMemories() {
@@ -2527,6 +2571,7 @@ loadMemories();
 // ===== Init =====
 async function init() {
   applyTheme(currentTheme);
+  applySidebar();
   loadConfig();
   setupTree();
   await bootstrapWorkspace();   // sunucudan klasör + oturumları çek
@@ -3814,36 +3859,46 @@ async def memory_delete_endpoint(request):
     return JSONResponse({"status": "ok" if ok else "notfound"})
 
 
+async def memory_clear_endpoint(request):
+    """Tüm bellek kayıtlarını sil."""
+    if not MEMORY_AVAILABLE:
+        return JSONResponse({"error": "memory module not available"}, status_code=503)
+    n = memory_mod.clear_all()
+    return JSONResponse({"status": "ok", "deleted": n})
+
+
 _MEMORY_EXTRACT_PROMPT = (
-    "Sen bir bellek çıkarım yardımcısısın. Verilen kullanıcı-asistan görüşmesinden, "
-    "GELECEKTE hatırlanmaya değer KALICI kullanıcı bilgilerini çıkar:\n"
-    "- preference: kullanıcının kalıcı tercihleri (ör. 'kısa ve madde madde yanıt sever')\n"
-    "- fact: kullanıcı hakkında kalıcı olgular (ör. 'ceza hukuku avukatı', 'adı Zeynep')\n"
-    "- instruction: kullanıcının asistana verdiği kalıcı talimatlar (ör. 'her yanıtta mevzuat maddesi ver')\n\n"
-    "KURALLAR: Sadece KALICI ve genel bilgileri al; tek seferlik sorular, geçici konular veya "
-    "asistanın kendi bilgisi DEĞİL. Hiçbir kalıcı bilgi yoksa boş dizi döndür. "
+    "Sen bir bellek yöneticisisin. Kullanıcı-asistan görüşmesinden iki şey çıkar:\n\n"
+    "1) EKLE — GELECEKTE hatırlanmaya değer KALICI kullanıcı bilgileri:\n"
+    "   - preference: kalıcı tercih (ör. 'kısa ve madde madde yanıt sever')\n"
+    "   - fact: kullanıcı hakkında kalıcı olgu (ör. 'ceza hukuku avukatı', 'adı Zeynep')\n"
+    "   - instruction: asistana kalıcı talimat (ör. 'her yanıtta mevzuat maddesi ver')\n"
+    "   SADECE gerçekten kalıcı ve değerli olanları al. Tek seferlik sorular, geçici "
+    "konular, sıradan sohbet veya asistanın kendi bilgisi EKLENMEZ. Emin değilsen ekleme.\n\n"
+    "2) UNUT — Kullanıcı AÇIKÇA bir bilgiyi unutmanı/silmeni istediyse (ör. 'bunu unut', "
+    "'X bilgisini sil', 'beni unutma listesinden çıkar'), MEVCUT BELLEK listesinden silinecek "
+    "kayıtların id'lerini ver. Kullanıcı açıkça istemediyse UNUT listesi BOŞ olmalı.\n\n"
     "SADECE şu biçimde geçerli JSON döndür, başka metin yazma:\n"
-    '[{"category":"fact","content":"..."}]'
+    '{"add":[{"category":"fact","content":"..."}],"forget":["mem_xxxx"]}'
 )
 
 
-def _parse_json_array(text: str):
+def _parse_json_object(text: str) -> dict:
     import json as _json
     t = (text or "").strip()
     if "```" in t:
-        # kod bloğu içindeki JSON'u al
         import re as _re
         m = _re.search(r"```(?:json)?\s*(.*?)```", t, _re.S)
         if m:
             t = m.group(1).strip()
-    a, b = t.find("["), t.rfind("]")
+    a, b = t.find("{"), t.rfind("}")
     if a == -1 or b == -1 or b < a:
-        return []
+        return {}
     try:
         data = _json.loads(t[a:b + 1])
-        return data if isinstance(data, list) else []
+        return data if isinstance(data, dict) else {}
     except Exception:
-        return []
+        return {}
 
 
 async def memory_learn_endpoint(request):
@@ -3879,7 +3934,13 @@ async def memory_learn_endpoint(request):
         if txt:
             convo.append(f"{role}: {txt[:1200]}")
     if not convo:
-        return JSONResponse({"added": []})
+        return JSONResponse({"added": [], "forgotten": []})
+
+    # Mevcut bellek (unut komutu için id'leriyle)
+    existing = memory_mod.list_memories()
+    existing_ids = {m.get("id") for m in existing}
+    mem_lines = [f"{m.get('id')}: {m.get('content')}" for m in existing[:40]]
+    mem_block = ("\n\nMEVCUT BELLEK:\n" + "\n".join(mem_lines)) if mem_lines else "\n\nMEVCUT BELLEK: (boş)"
 
     api_keys_map = {provider_id: api_key}
     for k, v in (body.get("api_keys") or {}).items():
@@ -3890,19 +3951,19 @@ async def memory_learn_endpoint(request):
         result = await GATEWAY.complete(
             system=_MEMORY_EXTRACT_PROMPT,
             history=[],
-            message="GÖRÜŞME:\n" + "\n".join(convo),
+            message="GÖRÜŞME:\n" + "\n".join(convo) + mem_block,
             chain=[{"provider": provider_id, "model": model}],
             api_keys=api_keys_map,
             timeout_for=lambda pid: 60,
         )
     except Exception:
-        return JSONResponse({"added": []})
+        return JSONResponse({"added": [], "forgotten": []})
     if result.get("error"):
-        return JSONResponse({"added": []})
+        return JSONResponse({"added": [], "forgotten": []})
 
-    items = _parse_json_array(result.get("reply", ""))
+    obj = _parse_json_object(result.get("reply", ""))
     added = []
-    for it in items[:4]:
+    for it in (obj.get("add") or [])[:4]:
         if not isinstance(it, dict):
             continue
         cat = (it.get("category") or "").strip().lower()
@@ -3916,7 +3977,14 @@ async def memory_learn_endpoint(request):
             added.append({"category": cat, "content": content, "id": entry["id"]})
         except Exception:
             continue
-    return JSONResponse({"added": added})
+
+    forgotten = []
+    for mid in (obj.get("forget") or [])[:10]:
+        mid = str(mid).strip()
+        if mid in existing_ids and memory_mod.delete_memory(mid):
+            forgotten.append(mid)
+
+    return JSONResponse({"added": added, "forgotten": forgotten})
 
 
 async def ollama_models_endpoint(request):
@@ -4443,6 +4511,7 @@ starlette_app = Starlette(
         Route("/api/memory/update", memory_update_endpoint, methods=["POST"]),
         Route("/api/memory/delete", memory_delete_endpoint, methods=["POST"]),
         Route("/api/memory/learn", memory_learn_endpoint, methods=["POST"]),
+        Route("/api/memory/clear", memory_clear_endpoint, methods=["POST"]),
         Mount("/", app=mcp_asgi),
     ],
 )
