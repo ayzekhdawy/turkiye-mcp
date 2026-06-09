@@ -37,15 +37,15 @@ class KvkkApiClient:
     KVKK_BASE_URL = "https://www.kvkk.gov.tr"
     DOCUMENT_MARKDOWN_CHUNK_SIZE = 5000  # Character limit per page
     
-    def __init__(self, request_timeout: float = 60.0):
+    def __init__(self, api_token: str = None, request_timeout: float = 60.0):
         """Initialize the KVKK API client."""
-        self.brave_api_token = os.getenv("BRAVE_API_TOKEN")
+        self.brave_api_token = api_token or os.getenv("BRAVE_API_TOKEN")
         if not self.brave_api_token:
             # Fallback to provided free token
             self.brave_api_token = "BSAuaRKB-dvSDSQxIN0ft1p2k6N82Kq"
             logger.info("Using fallback Brave API token (limited free token)")
         else:
-            logger.info("Using Brave API token from environment variable")
+            logger.info("Using Brave API token from %s", "user" if api_token else "environment variable")
         
         self.http_client = httpx.AsyncClient(
             headers={

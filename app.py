@@ -9,20 +9,26 @@ Railway deployment için ASGI uygulaması:
 """
 
 import os
+import sys
 import json
 import logging
 import time
 import re
+import hashlib
 import tempfile
+import threading
+import functools
+import pathlib
 from collections import defaultdict
 from datetime import date
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from datetime import date, timedelta
 
 import httpx
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse, Response
+from starlette.staticfiles import StaticFiles
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
@@ -50,10 +56,31 @@ except Exception:
     MEMORY_AVAILABLE = False
 
 try:
+    import deadlines as deadlines_mod
+    DEADLINES_AVAILABLE = True
+except Exception:
+    deadlines_mod = None
+    DEADLINES_AVAILABLE = False
+
+try:
     import computer_tools
     COMPUTER_TOOLS_AVAILABLE = True
 except Exception:
     COMPUTER_TOOLS_AVAILABLE = False
+
+try:
+    import dava_kartlari as dava_mod
+    DAVA_AVAILABLE = True
+except Exception:
+    dava_mod = None
+    DAVA_AVAILABLE = False
+
+try:
+    import backup as backup_mod
+    BACKUP_AVAILABLE = True
+except Exception:
+    backup_mod = None
+    BACKUP_AVAILABLE = False
 
 try:
     from gateway import LLMGateway  # Merkezi LLM yönlendirme + failover
@@ -67,6 +94,112 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 app = FastMCP(name="Türkiye MCP Server", version="1.0.0")
+
+# ============================================================
+# MERKEZİ TOOL ÖNBELLEĞİ (TTL bazlı)
+# ============================================================
+class ToolCache:
+    """Merkezi TTL önbellek — MCP tool sonuçlarını saklar."""
+
+    DEFAULT_TTL = 3600  # 1 saat
+    TTL_OVERRIDES: Dict[str, int] = {
+        # Borsa — hızlı değişen veriler
+        "get_bist_stock": 300, "get_fx_rates": 300, "get_crypto": 120,
+        "get_asgari_ucret": 86400, "get_prim_matrahi": 86400, "get_tax_calendar": 86400,
+        # Hukuk — kararlar değişmez
+        "search_bedesten_unified": 1800, "get_bedesten_document": 86400,
+        "search_anayasa_unified": 1800, "get_anayasa_document": 86400,
+        "search_emsal": 1800, "get_emsal_document": 86400,
+        "search_kik_v2_decisions": 1800, "get_kik_document": 86400,
+        "search_rekabet_kurumu": 1800, "get_rekabet_document": 86400,
+        "search_sayistay_unified": 1800, "search_kvkk_decisions": 1800,
+        "search_bddk_decisions": 1800, "search_sigorta_tahkim": 1800,
+        "search_uyusmazlik": 1800,
+        # Mevzuat — kanunlar değişmez
+        "search_mevzuat_bedesten": 1800, "get_mevzuat_document": 86400,
+        "get_mevzuat_article": 86400, "get_mevzuat_article_tree": 86400,
+        "search_mevzuat": 1800,
+        # Resmi Gazete — günlük
+        "search_resmi_gazete": 1800, "get_daily_bulletin": 3600,
+    }
+
+    def __init__(self):
+        self._store: Dict[str, tuple[float, Any]] = {}
+        self._lock = threading.RLock()
+        self._hits = 0
+        self._misses = 0
+
+    def _make_key(self, tool_name: str, args: dict) -> str:
+        args_json = json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
+        args_hash = hashlib.sha256(args_json.encode()).hexdigest()[:12]
+        return f"{tool_name}:{args_hash}"
+
+    def get(self, tool_name: str, args: dict) -> Optional[str]:
+        key = self._make_key(tool_name, args)
+        ttl = self.TTL_OVERRIDES.get(tool_name, self.DEFAULT_TTL)
+        with self._lock:
+            if key in self._store:
+                ts, value = self._store[key]
+                if time.time() - ts < ttl:
+                    self._hits += 1
+                    return value
+                del self._store[key]
+            self._misses += 1
+            return None
+
+    def put(self, tool_name: str, args: dict, value: str) -> None:
+        key = self._make_key(tool_name, args)
+        with self._lock:
+            self._store[key] = (time.time(), value)
+
+    def clear(self) -> int:
+        with self._lock:
+            count = len(self._store)
+            self._store.clear()
+            self._hits = 0
+            self._misses = 0
+            return count
+
+    def stats(self) -> dict:
+        with self._lock:
+            total = self._hits + self._misses
+            return {
+                "entries": len(self._store),
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate": f"{self._hits / total * 100:.1f}%" if total > 0 else "0%",
+            }
+
+TOOL_CACHE = ToolCache()
+
+
+def cached_tool(ttl: Optional[int] = None):
+    """MCP tool sonuçlarını önbelleğe alan dekoratör.
+
+    Kullanımı:
+        @app.tool(description="...", annotations={...})
+        @cached_tool()  # varsayılan TTL
+        async def search_...(...) -> str:
+            ...
+
+    Hatalar (❌ ile başlayan) önbelleğe alınmaz.
+    """
+    def decorator(fn):
+        tool_name = fn.__name__
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            cache_args = {k: v for k, v in kwargs.items()
+                         if v is not None and v != "" and v != [] and v != {}}
+            cached = TOOL_CACHE.get(tool_name, cache_args)
+            if cached is not None:
+                return cached
+            result = await fn(*args, **kwargs)
+            if result and not result.startswith("❌"):
+                TOOL_CACHE.put(tool_name, cache_args, result)
+            return result
+        return wrapper
+    return decorator
+
 
 # ============================================================
 # MODÜL İÇERİKLERİNİ YÜKLE
@@ -91,6 +224,24 @@ try:
 except Exception as e:
     logger.warning(f"❌ Mevzuat: {e}")
     MODULES_AVAILABLE["mevzuat"] = False
+
+try:
+    from mevzuat_search_module.bedesten_client import BedestenClient as MevzuatBedestenClient
+    from mevzuat_search_module.bedesten_models import BedSearchResult
+    mevzuat_bedesten_client = MevzuatBedestenClient()
+    MODULES_AVAILABLE["mevzuat_bedesten"] = True
+except Exception as e:
+    logger.warning(f"❌ Mevzuat Bedesten: {e}")
+    MODULES_AVAILABLE["mevzuat_bedesten"] = False
+
+try:
+    from mevzuat_search_module.mevzuat_client import MevzuatApiClientNew
+    from mevzuat_search_module.mevzuat_models import MevzuatSearchRequestNew
+    mevzuat_new_client = MevzuatApiClientNew()
+    MODULES_AVAILABLE["mevzuat_new"] = True
+except Exception as e:
+    logger.warning(f"❌ Mevzuat New: {e}")
+    MODULES_AVAILABLE["mevzuat_new"] = False
 
 try:
     from gib_module import GibClient
@@ -272,6 +423,7 @@ except Exception as e:
 
 if MODULES_AVAILABLE.get("resmi_gazete"):
     @app.tool(description="Resmi Gazete'de belge arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_resmi_gazete(anahtar_kelime: str, belge_turu: str = "", baslangic_tarihi: str = "", bitis_tarihi: str = "", sayfa: int = 1) -> str:
         try:
             tur_map = {"kanun": BelgeTuru.KANUN, "khk": BelgeTuru.KANUN_HUKMUNDE_KARARNAME, "cbk": BelgeTuru.CUMHURBASKANLIKI_KARAR, "yonetmelik": BelgeTuru.YONETMELIK, "teblig": BelgeTuru.TEBLIG, "sirkuler": BelgeTuru.SIRKULER, "genelge": BelgeTuru.GENELGE}
@@ -283,6 +435,7 @@ if MODULES_AVAILABLE.get("resmi_gazete"):
         except Exception as e: return f"❌ Hata: {str(e)}"
 
     @app.tool(description="Günlük Resmi Gazete bültenlerini getirir.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def get_daily_bulletin(tarih: str = "") -> str:
         try:
             target_date = date.fromisoformat(tarih) if tarih else date.today()
@@ -293,6 +446,7 @@ if MODULES_AVAILABLE.get("resmi_gazete"):
         except Exception as e: return f"❌ Hata: {str(e)}"
 
     @app.tool(description="Son N günün mali belgelerini getirir.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def get_recent_mali_changes(gun: int = 7) -> str:
         try:
             bultens = await resmi_gazete_client.get_recent_changes(days=gun)
@@ -304,6 +458,7 @@ if MODULES_AVAILABLE.get("resmi_gazete"):
 
 if MODULES_AVAILABLE.get("gib"):
     @app.tool(description="GİB sirkülerlerinde arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_gib_sirkuler(anahtar_kelime: str, sirkuler_turu: str = "", yil: int = None, sayfa: int = 1) -> str:
         try:
             tur_map = {"vergi_sirkuleri": SirkulerTuru.VERGI_SIRKULERI, "ic_genelge": SirkulerTuru.ICGENELGE, "duyuru": SirkulerTuru.DUYURU, "teblig": SirkulerTuru.TEBLIG}
@@ -315,6 +470,7 @@ if MODULES_AVAILABLE.get("gib"):
         except Exception as e: return f"❌ Hata: {str(e)}"
 
     @app.tool(description="Vergi takvimi bilgileri.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def get_tax_calendar(yil: int = None) -> str:
         try:
             donemler = await gib_client.get_tax_calendar(yil)
@@ -327,6 +483,7 @@ if MODULES_AVAILABLE.get("gib"):
 
 if MODULES_AVAILABLE.get("ivd"):
     @app.tool(description="VKN/TCKN ile e-Fatura mükellef sorgulama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def check_efatura_taxpayer(vergi_kimlik_no: str) -> str:
         try:
             result = await ivd_client.check_efatura_taxpayer(vergi_kimlik_no)
@@ -335,6 +492,7 @@ if MODULES_AVAILABLE.get("ivd"):
 
 if MODULES_AVAILABLE.get("sgk"):
     @app.tool(description="Asgari ücret bilgileri.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def get_asgari_ucret(yil: int = None) -> str:
         try:
             data = await sgk_client.get_asgari_ucret(yil)
@@ -342,6 +500,7 @@ if MODULES_AVAILABLE.get("sgk"):
         except Exception as e: return f"❌ Hata: {str(e)}"
 
     @app.tool(description="SGK prim matrahı ve oranları.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def get_prim_matrahi(yil: int = None) -> str:
         try:
             data = await sgk_client.get_prim_matrahi(yil)
@@ -350,6 +509,7 @@ if MODULES_AVAILABLE.get("sgk"):
 
 if MODULES_AVAILABLE.get("turmob"):
     @app.tool(description="TÜRMOB pratik bilgileri.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def get_turmob_pratik_bilgiler(kategori: str = "") -> str:
         try:
             bilgiler = await turmob_client.get_pratik_bilgiler(kategori if kategori else None)
@@ -360,6 +520,7 @@ if MODULES_AVAILABLE.get("turmob"):
 
 if MODULES_AVAILABLE.get("ismmmo"):
     @app.tool(description="İSMMMO pratik bilgileri.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def get_ismmmo_pratik_bilgiler(kategori: str = "") -> str:
         try:
             bilgiler = await ismmmo_client.get_pratik_bilgiler(kategori if kategori else None)
@@ -370,6 +531,7 @@ if MODULES_AVAILABLE.get("ismmmo"):
 
 if MODULES_AVAILABLE.get("bedesten"):
     @app.tool(description="Birden fazla Türk mahkemesinde birleştirilmiş arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_bedesten_unified(keyword: str, court_types: List[str] = None, page_number: int = 1) -> str:
         try:
             if court_types is None: court_types = ["YARGITAYKARARI", "DANISTAYKARAR"]
@@ -383,6 +545,7 @@ if MODULES_AVAILABLE.get("bedesten"):
         except Exception as e: return f"❌ Hata: {str(e)}"
 
     @app.tool(description="Bedesten'den karar metnini getirir.", annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True})
+    @cached_tool()
     async def get_bedesten_document(document_id: str) -> str:
         try:
             doc = await bedesten_client.get_document_as_markdown(document_id)
@@ -392,6 +555,7 @@ if MODULES_AVAILABLE.get("bedesten"):
 
 if MODULES_AVAILABLE.get("anayasa"):
     @app.tool(description="Anayasa Mahkemesi kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_anayasa_unified(keywords: str, decision_type: str = "bireysel_basvuru", page: int = 1) -> str:
         try:
             request = AnayasaUnifiedSearchRequest(decision_type=decision_type, keywords=[keywords], page_to_fetch=page, results_per_page=10)
@@ -399,8 +563,23 @@ if MODULES_AVAILABLE.get("anayasa"):
             return str(result.model_dump())[:4000]
         except Exception as e: return f"❌ Hata: {str(e)}"
 
+    @app.tool(description="Anayasa Mahkemesi karar tam metnini getirir (sayfalı).", annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True})
+    @cached_tool()
+    async def get_anayasa_document(document_url: str, page_number: int = 1) -> str:
+        try:
+            result = await anayasa_client.get_document_unified(document_url, page_number)
+            parts = []
+            if result.markdown_chunk:
+                parts.append(result.markdown_chunk[:7500])
+            if result.is_paginated:
+                parts.append(f"\n\n---\nSayfa {result.current_page}/{result.total_pages}")
+            content = "\n".join(p for p in parts if p)
+            return content[:8000] if content else "Belge bulunamadı."
+        except Exception as e: return f"❌ Hata: {str(e)}"
+
 if MODULES_AVAILABLE.get("kik"):
     @app.tool(description="KİK kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_kik_v2_decisions(decision_type: str = "uyusmazlik", keyword: str = "", karar_no: str = "") -> str:
         try:
             response = await kik_client.search_decisions(decision_type=KikV2DecisionType(decision_type), karar_metni=keyword, karar_no=karar_no)
@@ -409,16 +588,48 @@ if MODULES_AVAILABLE.get("kik"):
             return result
         except Exception as e: return f"❌ Hata: {str(e)}"
 
+    @app.tool(description="KİK kurul kararı tam metnini getirir.", annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True})
+    @cached_tool()
+    async def get_kik_document(document_id: str) -> str:
+        try:
+            result = await kik_client.get_document_markdown(document_id)
+            if result and result.markdown_content:
+                return result.markdown_content[:8000]
+            if result and result.error_message:
+                return f"❌ Hata: {result.error_message}"
+            return "Belge bulunamadı."
+        except Exception as e: return f"❌ Hata: {str(e)}"
+
 if MODULES_AVAILABLE.get("rekabet"):
     @app.tool(description="Rekabet Kurumu kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_rekabet_kurumu(keyword: str = "", page: int = 1) -> str:
         try:
             result = await rekabet_client.search_decisions(RekabetKurumuSearchRequest(sayfaAdi=keyword, page=page))
             return str(result.model_dump())[:4000]
         except Exception as e: return f"❌ Hata: {str(e)}"
 
+    @app.tool(description="Rekabet Kurumu karar tam metnini getirir (sayfalı PDF).", annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True})
+    @cached_tool()
+    async def get_rekabet_document(karar_id: str, page: int = 1) -> str:
+        try:
+            result = await rekabet_client.get_decision_document(karar_id, page)
+            parts = []
+            if result.title_on_landing_page:
+                parts.append(f"# {result.title_on_landing_page}")
+            if result.markdown_chunk:
+                parts.append(result.markdown_chunk[:7500])
+            if result.is_paginated:
+                parts.append(f"\n\n---\nSayfa {result.current_page}/{result.total_pages}")
+            if result.error_message:
+                parts.append(f"\n\n⚠️ {result.error_message}")
+            content = "\n".join(p for p in parts if p)
+            return content[:8000] if content else "Belge bulunamadı."
+        except Exception as e: return f"❌ Hata: {str(e)}"
+
 if MODULES_AVAILABLE.get("sayistay"):
     @app.tool(description="Sayıştay kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_sayistay_unified(decision_type: str = "genel_kurul", keyword: str = "", page: int = 1) -> str:
         try:
             result = await sayistay_client.search_unified(SayistayUnifiedSearchRequest(decision_type=decision_type, start=(page-1)*10, length=10, karar_tamami=keyword))
@@ -427,6 +638,7 @@ if MODULES_AVAILABLE.get("sayistay"):
 
 if MODULES_AVAILABLE.get("kvkk"):
     @app.tool(description="KVKK kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_kvkk_decisions(keyword: str = "", page: int = 1) -> str:
         try:
             result = await kvkk_client.search_decisions(KvkkSearchRequest(keywords=keyword, page=page))
@@ -435,6 +647,7 @@ if MODULES_AVAILABLE.get("kvkk"):
 
 if MODULES_AVAILABLE.get("bddk"):
     @app.tool(description="BDDK kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_bddk_decisions(keyword: str = "", page: int = 1) -> str:
         try:
             result = await bddk_client.search_decisions(BddkSearchRequest(keywords=keyword, page=page))
@@ -443,6 +656,7 @@ if MODULES_AVAILABLE.get("bddk"):
 
 if MODULES_AVAILABLE.get("sigorta_tahkim"):
     @app.tool(description="Sigorta Tahkim kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_sigorta_tahkim(keyword: str = "", page: int = 1) -> str:
         try:
             result = await sigorta_tahkim_client.search_decisions(SigortaTahkimSearchRequest(keywords=keyword, page=page))
@@ -451,6 +665,7 @@ if MODULES_AVAILABLE.get("sigorta_tahkim"):
 
 if MODULES_AVAILABLE.get("uyusmazlik"):
     @app.tool(description="Uyuşmazlık Mahkemesi kararlarında arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_uyusmazlik(keyword: str = "", page: int = 1) -> str:
         try:
             result = await uyusmazlik_client.search_decisions(UyusmazlikSearchRequest(icerik=keyword))
@@ -459,6 +674,7 @@ if MODULES_AVAILABLE.get("uyusmazlik"):
 
 if MODULES_AVAILABLE.get("emsal"):
     @app.tool(description="EMSAL kararlarda arama.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def search_emsal(keyword: str = "", page: int = 1) -> str:
         try:
             result = await emsal_client.search_detailed_decisions(EmsalSearchRequest(keyword=keyword, page_number=page, page_size=10))
@@ -469,8 +685,107 @@ if MODULES_AVAILABLE.get("emsal"):
             return "Sonuç yok."
         except Exception as e: return f"❌ Hata: {str(e)}"
 
+    @app.tool(description="EMSAL karar tam metnini getirir.", annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True})
+    @cached_tool()
+    async def get_emsal_document(id: str) -> str:
+        try:
+            doc = await emsal_client.get_decision_document_as_markdown(id)
+            if doc and doc.markdown_content:
+                return doc.markdown_content[:8000]
+            return "Belge bulunamadı."
+        except Exception as e: return f"❌ Hata: {str(e)}"
+
+if MODULES_AVAILABLE.get("mevzuat_bedesten"):
+    @app.tool(description="Mevzuat (kanun, KHK, yönetmelik vb.) araması.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
+    async def search_mevzuat_bedesten(phrase: str = "", mevzuat_adi: str = "", mevzuat_tur: str = "", page: int = 1) -> str:
+        try:
+            tur_list = [mevzuat_tur] if mevzuat_tur else None
+            result = await mevzuat_bedesten_client.search_documents(
+                phrase=phrase, mevzuat_adi=mevzuat_adi, mevzuat_tur_list=tur_list,
+                page=page, page_size=10
+            )
+            if result.error_message:
+                return f"❌ Hata: {result.error_message}"
+            output = f"# Mevzuat Arama\n\n**Toplam:** {result.total_results}\n\n"
+            for doc in result.documents[:10]:
+                output += f"- **{doc.mevzuat_adi}** | No: {doc.mevzuat_no} | ID: `{doc.mevzuat_id}`\n"
+            return output if result.documents else "Sonuç bulunamadı."
+        except Exception as e: return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Mevzuat tam metnini getirir.", annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True})
+    @cached_tool()
+    async def get_mevzuat_document(mevzuat_id: str) -> str:
+        try:
+            doc = await mevzuat_bedesten_client.get_document_content(mevzuat_id)
+            if doc.error_message:
+                return f"❌ Hata: {doc.error_message}"
+            if doc.content:
+                return doc.content[:8000]
+            return "Belge bulunamadı."
+        except Exception as e: return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Mevzuat belirli bir maddenin içeriğini getirir.", annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True})
+    @cached_tool()
+    async def get_mevzuat_article(madde_id: str) -> str:
+        try:
+            doc = await mevzuat_bedesten_client.get_article_content(madde_id)
+            if doc.error_message:
+                return f"❌ Hata: {doc.error_message}"
+            if doc.content:
+                return doc.content[:8000]
+            return "Madde bulunamadı."
+        except Exception as e: return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Mevzuat madde ağacını (içindekiler) getirir.", annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True})
+    @cached_tool()
+    async def get_mevzuat_article_tree(mevzuat_id: str) -> str:
+        try:
+            nodes, error = await mevzuat_bedesten_client.get_article_tree(mevzuat_id)
+            if error:
+                return f"❌ Hata: {error}"
+            if not nodes:
+                return "Madde ağacı bulunamadı."
+            lines = ["# Madde Ağacı\n"]
+            def render_tree(node_list, indent=0):
+                for node in node_list:
+                    prefix = "  " * indent
+                    title = node.madde_baslik or node.title or ""
+                    madde_no = node.madde_no or ""
+                    madde_id = node.madde_id or ""
+                    label = f"{prefix}- **Madde {madde_no}** {title}" if madde_no else f"{prefix}- {title or '(başlıksız)'}"
+                    if madde_id:
+                        label += f" [ID: `{madde_id}`]"
+                    lines.append(label)
+                    if node.children:
+                        render_tree(node.children, indent + 1)
+            render_tree(nodes)
+            return "\n".join(lines)[:8000]
+        except Exception as e: return f"❌ Hata: {str(e)}"
+
+if MODULES_AVAILABLE.get("mevzuat_new"):
+    @app.tool(description="Mevzuat.gov.tr üzerinde kanun, KHK, yönetmelik araması (alternatif kaynak).", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
+    async def search_mevzuat(keyword: str = "", mevzuat_tur: str = "Kanun", sayfa: int = 1) -> str:
+        try:
+            request = MevzuatSearchRequestNew(
+                aranacak_ifade=keyword or None,
+                mevzuat_tur=mevzuat_tur,
+                page_number=sayfa,
+                page_size=10
+            )
+            result = await mevzuat_new_client.search_documents(request)
+            if result.error_message:
+                return f"❌ Hata: {result.error_message}"
+            output = f"# Mevzuat Arama (mevzuat.gov.tr)\n\n**Toplam:** {result.total_results}\n\n"
+            for doc in result.documents[:10]:
+                output += f"- **{doc.mev_adi}** | No: {doc.mevzuat_no} | Tür: {doc.mevzuat_tur}\n"
+            return output if result.documents else "Sonuç bulunamadı."
+        except Exception as e: return f"❌ Hata: {str(e)}"
+
 if MODULES_AVAILABLE.get("ihale"):
     @app.tool(description="Kamu ihalelerinde arama (EKAP v2).", annotations={"readOnlyHint": True, "openWorldHint": True})
+    @cached_tool()
     async def search_tenders(search_text: str = "", limit: int = 10) -> str:
         try:
             result = await ekap_client.search_tenders(search_text=search_text, limit=limit)
@@ -482,6 +797,7 @@ if MODULES_AVAILABLE.get("ihale"):
         except Exception as e: return f"❌ Hata: {str(e)}"
 
     @app.tool(description="Son N günün ihalelerini getirir.", annotations={"readOnlyHint": True, "openWorldHint": True})
+    @cached_tool()
     async def get_recent_tenders(days: int = 7, limit: int = 10) -> str:
         try:
             start_date = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -493,6 +809,7 @@ if MODULES_AVAILABLE.get("ihale"):
         except Exception as e: return f"❌ Hata: {str(e)}"
 
     @app.tool(description="Resmi ilan arama (ilan.gov.tr).", annotations={"readOnlyHint": True, "openWorldHint": True})
+    @cached_tool()
     async def search_ilan_ads(search_text: str = "", max_result_count: int = 12) -> str:
         try:
             result = await ilan_client_inst.search_ads(search_text=search_text, max_result_count=max_result_count)
@@ -504,22 +821,229 @@ if MODULES_AVAILABLE.get("ihale"):
 
 if MODULES_AVAILABLE.get("borsa"):
     @app.tool(description="BIST hisse verileri.", annotations={"readOnlyHint": True, "openWorldHint": True})
+    @cached_tool()
     async def get_bist_stock(symbol: str) -> str:
         try:
             return str(await borsa_client.get_bist_stock(symbol))[:4000]
         except Exception as e: return f"❌ Hata: {str(e)}"
 
     @app.tool(description="Döviz kurları.", annotations={"readOnlyHint": True, "openWorldHint": True})
+    @cached_tool()
     async def get_fx_rates() -> str:
         try:
             return str(await borsa_client.get_fx_rates())[:4000]
         except Exception as e: return f"❌ Hata: {str(e)}"
 
     @app.tool(description="Kripto para verileri.", annotations={"readOnlyHint": True, "openWorldHint": True})
+    @cached_tool()
     async def get_crypto(symbol: str) -> str:
         try:
             return str(await borsa_client.get_crypto(symbol))[:4000]
         except Exception as e: return f"❌ Hata: {str(e)}"
+
+if DEADLINES_AVAILABLE:
+    @app.tool(description="Hukuki süreleri listele.", annotations={"readOnlyHint": True, "idempotentHint": True})
+    async def list_deadlines(status: str = "") -> str:
+        try:
+            dls = deadlines_mod.list_deadlines(status if status else None)
+            if not dls:
+                return "Süre bulunamadı."
+            result = "# Hukuki Süreler\n\n"
+            cat_labels = {k: v["label"] for k, v in deadlines_mod.CATEGORY_DEFAULTS.items()}
+            for d in dls:
+                cat = cat_labels.get(d["category"], d["category"])
+                status_icon = {"active": "🟡", "completed": "✅", "expired": "🔴"}.get(d.get("status", "active"), "⚪")
+                result += f"{status_icon} **{d['title']}** ({cat})\n   Başlangıç: {d['start_date']} | Bitiş: {d['deadline_date']} | Süre: {d['days_allowed']} gün | Durum: {d.get('status', 'active')}\n\n"
+            return result[:4000]
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Yeni hukuki süre ekle.", annotations={"readOnlyHint": False, "idempotentHint": False})
+    async def add_deadline(category: str, title: str, start_date: str, days_allowed: int = 0, description: str = "") -> str:
+        try:
+            dl = deadlines_mod.add_deadline(category, title, start_date, days_allowed if days_allowed > 0 else None, description)
+            cat_labels = {k: v["label"] for k, v in deadlines_mod.CATEGORY_DEFAULTS.items()}
+            return f"✅ Süre eklendi: **{dl['title']}** ({cat_labels.get(dl['category'], dl['category'])})\nBitiş tarihi: {dl['deadline_date']} ({dl['days_allowed']} gün)"
+        except ValueError as e:
+            return f"❌ Hata: {str(e)}"
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Süreyi tamamlandı olarak işaretle.", annotations={"readOnlyHint": False, "idempotentHint": False})
+    async def complete_deadline(id: str) -> str:
+        try:
+            result = deadlines_mod.mark_completed(id)
+            if result:
+                return f"✅ Süre tamamlandı: **{result['title']}**"
+            return "❌ Süre bulunamadı."
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Süreyi sil.", annotations={"readOnlyHint": False, "idempotentHint": False})
+    async def delete_deadline(id: str) -> str:
+        try:
+            if deadlines_mod.delete_deadline(id):
+                return "✅ Süre silindi."
+            return "❌ Süre bulunamadı."
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Yaklaşan hukuki süreleri getir.", annotations={"readOnlyHint": True, "idempotentHint": True})
+    async def get_upcoming_deadlines(days: int = 30) -> str:
+        try:
+            upcoming = deadlines_mod.get_upcoming(days)
+            if not upcoming:
+                return f"Önümüzdeki {days} gün içinde yaklaşan süre yok."
+            result = f"# Yaklaşan Süreler ({days} gün)\n\n"
+            cat_labels = {k: v["label"] for k, v in deadlines_mod.CATEGORY_DEFAULTS.items()}
+            from datetime import date as _date
+            today = _date.today()
+            for d in upcoming:
+                cat = cat_labels.get(d["category"], d["category"])
+                try:
+                    dl_date = _date.fromisoformat(d["deadline_date"])
+                    days_left = (dl_date - today).days
+                except Exception:
+                    days_left = "?"
+                result += f"- **{d['title']}** ({cat}) — bitiş: {d['deadline_date']} ({days_left} gün kaldı)\n"
+            return result[:4000]
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Gecikmiş hukuki süreleri getir.", annotations={"readOnlyHint": True, "idempotentHint": True})
+    async def get_overdue_deadlines() -> str:
+        try:
+            overdue = deadlines_mod.get_overdue()
+            if not overdue:
+                return "Gecikmiş süre yok."
+            result = "# 🔴 Gecikmiş Süreler\n\n"
+            cat_labels = {k: v["label"] for k, v in deadlines_mod.CATEGORY_DEFAULTS.items()}
+            for d in overdue:
+                cat = cat_labels.get(d["category"], d["category"])
+                result += f"- **{d['title']}** ({cat}) — bitiş: {d['deadline_date']} (GECİKMİŞ!)\n"
+            return result[:4000]
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Süre bitiş tarihini hesapla (kaydetmeden).", annotations={"readOnlyHint": True, "idempotentHint": True})
+    async def compute_deadline(start_date: str, days: int) -> str:
+        try:
+            result = deadlines_mod.compute_deadline(start_date, days)
+            return f"Bitiş tarihi: {result} (başlangıç: {start_date} + {days} gün, hafta sonu kaydırması dahil)"
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+if DAVA_AVAILABLE:
+    @app.tool(description="Dava kartlarını listele. Durum veya tür filtresi uygula.", annotations={"readOnlyHint": True, "idempotentHint": True})
+    async def list_dava_kartlari(durum: str = "", dava_turu: str = "") -> str:
+        try:
+            kartlar = dava_mod.list_kartlar(durum=durum if durum else None, dava_turu=dava_turu if dava_turu else None)
+            if not kartlar:
+                return "Dava kartı bulunamadı."
+            lines = [f"**{k['esas_no']}** — {dava_mod.DAVA_TURLERI.get(k['dava_turu'], {}).get('label', k['dava_turu'])} | {dava_mod.DURUMLAR.get(k['durum'], {}).get('label', k['durum'])}"]
+            for k in kartlar:
+                tarafs = f"{k.get('taraf_muvekkil', '')} vs {k.get('taraf_karsi', '')}".strip(' vs')
+                lines.append(f"- {k['esas_no']} | {k['dava_turu']} | {k['durum']} | {k.get('daire', '')} | {tarafs}")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Yeni dava kartı ekle. Esas no ve dava türü zorunlu.", annotations={"readOnlyHint": False, "idempotentHint": False})
+    async def add_dava_karti(esas_no: str, dava_turu: str, taraf_muvekkil: str = "", taraf_karsi: str = "", daire: str = "", konu: str = "", acilis_tarihi: str = "", notlar: str = "") -> str:
+        try:
+            k = dava_mod.add_kart(esas_no=esas_no, dava_turu=dava_turu, taraf_muvekkil=taraf_muvekkil, taraf_karsi=taraf_karsi, daire=daire, konu=konu, acilis_tarihi=acilis_tarihi, notlar=notlar)
+            return f"✅ Dava kartı eklendi: {k['id']} — {k['esas_no']} ({dava_mod.DAVA_TURLERI.get(k['dava_turu'], {}).get('label', k['dava_turu'])})"
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Dava kartını güncelle. Durum, esas no, taraf vb. değiştir.", annotations={"readOnlyHint": False, "idempotentHint": False})
+    async def update_dava_karti(id: str, durum: str = "", esas_no: str = "", taraf_muvekkil: str = "", taraf_karsi: str = "", daire: str = "", konu: str = "", acilis_tarihi: str = "", sonuc_tarihi: str = "", notlar: str = "", dava_turu: str = "") -> str:
+        try:
+            kwargs = {}
+            if durum: kwargs["durum"] = durum
+            if esas_no: kwargs["esas_no"] = esas_no
+            if taraf_muvekkil: kwargs["taraf_muvekkil"] = taraf_muvekkil
+            if taraf_karsi: kwargs["taraf_karsi"] = taraf_karsi
+            if daire: kwargs["daire"] = daire
+            if konu: kwargs["konu"] = konu
+            if acilis_tarihi: kwargs["acilis_tarihi"] = acilis_tarihi
+            if sonuc_tarihi: kwargs["sonuc_tarihi"] = sonuc_tarihi
+            if notlar: kwargs["notlar"] = notlar
+            if dava_turu: kwargs["dava_turu"] = dava_turu
+            k = dava_mod.update_kart(id, **kwargs)
+            if k:
+                return f"✅ Güncellendi: {k['esas_no']} — durum: {dava_mod.DURUMLAR.get(k['durum'], {}).get('label', k['durum'])}"
+            return "❌ Kart bulunamadı."
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Dava kartını sil.", annotations={"readOnlyHint": False, "idempotentHint": False})
+    async def delete_dava_karti(id: str) -> str:
+        try:
+            if dava_mod.delete_kart(id):
+                return f"✅ Dava kartı silindi: {id}"
+            return "❌ Kart bulunamadı."
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="ID ile tek dava kartı getir.", annotations={"readOnlyHint": True, "idempotentHint": True})
+    async def get_dava_karti(id: str) -> str:
+        try:
+            k = dava_mod.get_kart(id)
+            if k:
+                tarafs = f"{k.get('taraf_muvekkil', '')} vs {k.get('taraf_karsi', '')}".strip(' vs')
+                return f"**{k['esas_no']}** | {dava_mod.DAVA_TURLERI.get(k['dava_turu'], {}).get('label', k['dava_turu'])} | {dava_mod.DURUMLAR.get(k['durum'], {}).get('label', k['durum'])}\nMahkeme: {k.get('daire', '-')}\nTaraf: {tarafs or '-'}\nKonu: {k.get('konu', '-')}\nAçılış: {k.get('acilis_tarihi', '-')}\nSonuç: {k.get('sonuc_tarihi', '-')}"
+            return "❌ Kart bulunamadı."
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Dava kartlarında arama. Esas no, daire, taraf, konu'da arar.", annotations={"readOnlyHint": True, "idempotentHint": True})
+    async def search_dava_kartlari(query: str) -> str:
+        try:
+            kartlar = dava_mod.search_kartlar(query)
+            if not kartlar:
+                return f"'{query}' ile eşleşen dava kartı bulunamadı."
+            lines = [f"**{len(kartlar)} sonuç:**"]
+            for k in kartlar:
+                lines.append(f"- {k['esas_no']} | {k['dava_turu']} | {k['durum']} | {k.get('taraf_muvekkil', '')} vs {k.get('taraf_karsi', '')}")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Dava kartına süre bağla.", annotations={"readOnlyHint": False, "idempotentHint": False})
+    async def link_deadline_to_dava(dava_id: str, deadline_id: str) -> str:
+        try:
+            k = dava_mod.link_deadline(dava_id, deadline_id)
+            if k:
+                return f"✅ Süre bağlandı: {k['esas_no']} ← {deadline_id}"
+            return "❌ Kart veya süre bulunamadı."
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+if BACKUP_AVAILABLE:
+    @app.tool(description="Veri yedeği oluştur. Çalışma alanı, bellek, süreler ve dava kartlarını .zip dosyasına yedekler.", annotations={"readOnlyHint": False, "idempotentHint": False})
+    async def create_backup() -> str:
+        try:
+            result = backup_mod.create_backup()
+            if result.get("ok"):
+                size_str = backup_mod._format_size(result["size"])
+                return f"✅ Yedek oluşturuldu: {result['filename']} ({size_str}, {result['files']} dosya)"
+            return f"❌ Yedek oluşturulamadı: {result.get('error', 'Bilinmeyen hata')}"
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
+
+    @app.tool(description="Mevcut yedek dosyalarını listele.", annotations={"readOnlyHint": True, "idempotentHint": True})
+    async def list_backups() -> str:
+        try:
+            backups = backup_mod.list_backups()
+            if not backups:
+                return "Henüz yedek dosyası yok."
+            lines = [f"**{len(backups)} yedek bulundu:**"]
+            for b in backups:
+                lines.append(f"- {b['filename']} ({b['size_formatted']}, {b['created_str']})")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"❌ Hata: {str(e)}"
 
 @app.tool(description="Tüm modüllerin sağlık durumu.", annotations={"readOnlyHint": True, "openWorldHint": False, "idempotentHint": True})
 async def check_health() -> str:
@@ -534,2062 +1058,19 @@ async def check_health() -> str:
 
 
 # ============================================================
-# WEB DASHBOARD
+# WEB DASHBOARD — static/template dosyalardan sunulur
 # ============================================================
 
-DASHBOARD_HTML = """<!doctype html>
-<html lang="tr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Türkiye MCP</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Be+Vietnam+Pro:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-:root{
-  --bg:#0b0d10;--titlebar:#08090b;--s1:#121519;--s2:#181c22;--s3:#1f242b;
-  --border:rgba(255,255,255,.07);--border-strong:rgba(255,255,255,.12);
-  --text:#e8eaed;--dim:#9aa1aa;--faint:#6b727b;
-  --accent:#e23b4e;--accent-hi:#f04458;--accent-soft:rgba(226,59,78,.12);
-  --green:#2fbf71;--amber:#e0a92e;--red:#e23b4e;
-  --radius:14px;
-}
-body.light{
-  --bg:#f4f6f9;--titlebar:#e9ecf1;--s1:#ffffff;--s2:#f0f2f6;--s3:#e3e7ed;
-  --border:rgba(16,24,40,.10);--border-strong:rgba(16,24,40,.18);
-  --text:#161a20;--dim:#4b525b;--faint:#8a929c;
-  --accent:#e23b4e;--accent-hi:#c5283a;--accent-soft:rgba(226,59,78,.10);
-}
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%}
-body{background:var(--bg);color:var(--text);font-family:"Be Vietnam Pro",system-ui,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased;overflow:hidden}
-.display{font-family:"Bricolage Grotesque",system-ui,sans-serif;letter-spacing:-.01em}
-
-/* ---- title bar ---- */
-.titlebar{height:38px;background:var(--titlebar);display:flex;align-items:center;justify-content:space-between;padding:0 6px 0 14px;-webkit-app-region:drag;user-select:none;border-bottom:1px solid var(--border)}
-.titlebar .tb-left{display:flex;align-items:center;gap:9px;color:var(--faint);font-size:12px;font-weight:500}
-.tb-flag{width:17px;height:12px;border-radius:2px;background:var(--accent);position:relative;flex:0 0 auto}
-.tb-flag::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 38% 50%,#fff 1.9px,transparent 2px),radial-gradient(circle at 46% 50%,var(--accent) 1.5px,transparent 1.6px);opacity:.92}
-.tb-controls{display:flex;-webkit-app-region:no-drag}
-.tb-btn{width:42px;height:30px;display:grid;place-items:center;border:none;background:transparent;color:var(--dim);cursor:pointer;border-radius:6px}
-.tb-btn:hover{background:var(--s2);color:var(--text)}
-.tb-btn.close:hover{background:var(--accent);color:#fff}
-
-/* ---- shell ---- */
-.shell{display:flex;height:calc(100vh - 38px)}
-
-/* ---- sidebar ---- */
-.sidebar{width:264px;flex:0 0 264px;background:var(--s1);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:16px 14px;gap:16px}
-.brand{display:flex;align-items:center;gap:11px;padding:2px 4px}
-.brand-mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(150deg,var(--accent),#a02233);display:grid;place-items:center;font-family:"Bricolage Grotesque";font-weight:700;color:#fff;font-size:14px;box-shadow:0 4px 14px rgba(226,59,78,.25)}
-.brand-name{font-family:"Bricolage Grotesque";font-weight:600;font-size:16px}
-.brand-sub{font-size:11px;color:var(--faint);margin-top:1px}
-
-.new-chat{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px;border-radius:11px;border:1px solid var(--border-strong);background:var(--s2);color:var(--text);font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer;transition:.15s}
-.new-chat:hover{background:var(--s3);border-color:rgba(255,255,255,.18)}
-.new-chat svg{width:16px;height:16px}
-
-.sb-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);padding:0 4px;margin-bottom:8px}
-.chats{display:flex;flex-direction:column;gap:2px;overflow-y:auto;flex:0 1 auto}
-.chat-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;color:var(--dim);cursor:pointer;font-size:13px;transition:.12s}
-.chat-item:hover{background:var(--s2);color:var(--text)}
-.chat-item.active{background:var(--s2);color:var(--text)}
-.chat-item .dot{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:0 0 auto}
-.chat-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chat-item .del-btn{opacity:0;margin-left:auto;cursor:pointer;font-size:11px;color:var(--faint)}
-.chat-item:hover .del-btn{opacity:.7}
-.chat-item:hover .del-btn:hover{opacity:1;color:var(--accent)}
-
-.modules{margin-top:auto}
-.mod{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:9px;cursor:default;font-size:12.5px}
-.mod:hover{background:var(--s2)}
-.mod-left{display:flex;align-items:center;gap:9px;color:var(--dim)}
-.mod .sdot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(47,191,113,.13)}
-.mod .sdot.off{background:var(--red);box-shadow:0 0 0 3px rgba(226,59,78,.13)}
-.mod-count{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
-
-/* ---- main ---- */
-.main{flex:1;display:flex;flex-direction:column;min-width:0;background:radial-gradient(900px 500px at 70% -10%,rgba(226,59,78,.05),transparent 60%),var(--bg)}
-
-.topbar{height:54px;flex:0 0 54px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid var(--border)}
-.status{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim)}
-.status .sdot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(47,191,113,.15)}
-.status.off .sdot{background:var(--amber);box-shadow:0 0 0 3px rgba(224,169,46,.15)}
-.topbar-right{display:flex;align-items:center;gap:8px}
-.model-chip{display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:9px;background:var(--s2);border:1px solid var(--border);font-size:12.5px;color:var(--dim);cursor:pointer;transition:.12s}
-.model-chip:hover{border-color:var(--border-strong);color:var(--text)}
-.model-chip.warn{color:var(--accent);border-color:rgba(226,59,78,.35);background:var(--accent-soft)}
-.model-chip svg{width:14px;height:14px;opacity:.8}
-.icon-btn{width:36px;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--s2);color:var(--dim);display:grid;place-items:center;cursor:pointer;transition:.12s}
-.icon-btn:hover{color:var(--text);border-color:var(--border-strong)}
-.icon-btn svg{width:17px;height:17px}
-
-/* ---- chat area ---- */
-.canvas{flex:1;overflow-y:auto;display:flex;flex-direction:column;padding:20px 24px}
-.canvas::-webkit-scrollbar{width:6px}
-.canvas::-webkit-scrollbar-thumb{background:var(--s3);border-radius:6px}
-
-.hero{width:100%;max-width:680px;text-align:center;margin:auto;animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
-.hero h1{font-family:"Bricolage Grotesque";font-weight:700;font-size:33px;line-height:1.1}
-.hero h1 .ac{color:var(--accent)}
-.hero p{color:var(--dim);font-size:14.5px;line-height:1.6;margin:14px auto 30px;max-width:520px}
-.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.card{text-align:left;padding:18px;border-radius:var(--radius);background:var(--s1);border:1px solid var(--border);cursor:pointer;transition:.16s;animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
-.card:nth-child(1){animation-delay:.05s}.card:nth-child(2){animation-delay:.1s}.card:nth-child(3){animation-delay:.15s}.card:nth-child(4){animation-delay:.2s}
-.card:hover{transform:translateY(-2px);border-color:var(--border-strong);background:var(--s2)}
-.card-ic{width:38px;height:38px;border-radius:10px;background:var(--s3);display:grid;place-items:center;margin-bottom:14px;color:var(--accent)}
-.card-ic svg{width:19px;height:19px}
-.card h3{font-family:"Bricolage Grotesque";font-weight:600;font-size:15px;margin-bottom:4px}
-.card .desc{color:var(--faint);font-size:12.5px;line-height:1.5}
-
-/* ---- messages ---- */
-.messages{max-width:760px;width:100%;margin:0 auto}
-.msg{margin-bottom:16px;display:flex;gap:10px;animation:rise .3s ease}
-.msg.user{justify-content:flex-end}
-.msg.assistant{justify-content:flex-start}
-.msg-bubble{padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.65;max-width:85%;word-wrap:break-word}
-.msg.user .msg-bubble{background:var(--accent);color:#fff;border-radius:16px 16px 4px 16px}
-.msg.assistant .msg-bubble{background:var(--s2);border:1px solid var(--border);border-radius:16px 16px 16px 4px}
-.msg.system .msg-bubble{background:var(--s1);border:1px solid var(--border-strong);color:var(--amber);font-size:13px;text-align:center;margin:0 auto;border-radius:12px;max-width:60%}
-
-.msg-content{white-space:normal}
-.msg-content h2,.msg-content h3,.msg-content h4{margin:.5rem 0 .25rem;color:var(--text)}
-.msg-content h2{font-size:1.1rem}.msg-content h3{font-size:1rem}.msg-content h4{font-size:.95rem}
-.msg-content ul,.msg-content ol{padding-left:1.5rem;margin:.5rem 0}
-.msg-content li{margin:.2rem 0}
-.msg-content hr{border:none;border-top:1px solid var(--border);margin:.75rem 0}
-.msg-content a{color:var(--accent-hi);text-decoration:underline}
-.msg-content em{color:var(--accent-hi)}
-.msg-content strong{color:var(--accent-hi)}
-.md-table{width:100%;border-collapse:collapse;margin:.5rem 0;font-size:.85rem}
-.md-table th{background:rgba(226,59,78,.2);color:var(--text);padding:.4rem .6rem;text-align:left;border:1px solid var(--border);font-weight:600}
-.md-table td{padding:.35rem .6rem;border:1px solid var(--border);color:var(--dim)}
-.md-table tr:hover td{background:var(--s3)}
-
-.msg-actions{display:flex;gap:4px;margin-top:8px;opacity:.4;transition:opacity .2s}
-.msg.assistant:hover .msg-actions{opacity:1}
-.msg-actions button{background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:12px;color:var(--dim);transition:all .15s}
-.msg-actions button:hover{background:var(--s3);color:var(--text);border-color:var(--accent)}
-
-.sources{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
-.source-tag{background:var(--accent-soft);color:var(--accent-hi);padding:2px 8px;border-radius:9999px;font-size:11px}
-.skill-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
-.skill-tag{background:rgba(47,191,113,.13);color:var(--green);padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500}
-.msg-foot{margin-top:6px;font-size:10.5px;color:var(--faint)}
-.token-chip{font-size:11.5px;color:var(--dim);background:var(--s2);border:1px solid var(--border);padding:4px 9px;border-radius:8px;white-space:nowrap}
-.token-chip.warn{color:var(--accent);border-color:rgba(226,59,78,.4);background:var(--accent-soft)}
-
-/* ---- sistem paneli ---- */
-.panel-tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border)}
-.panel-tab{display:flex;align-items:center;gap:7px;padding:8px 14px;font-size:13px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
-.panel-tab.active{color:var(--text);border-bottom-color:var(--accent)}
-.ico{width:15px;height:15px;flex:0 0 auto}
-.fmenu svg.ico{width:13px;height:13px;display:block}
-.msg-actions button svg.ico{width:14px;height:14px;display:block}
-.msg-actions button{display:grid;place-items:center}
-.att-chip .emsal{display:inline-flex;align-items:center;gap:4px}
-.att-chip .emsal svg.ico{width:13px;height:13px}
-.att-chip .ax svg.ico{width:13px;height:13px;display:block}
-.panel-body{max-height:54vh;overflow-y:auto}
-.panel-body::-webkit-scrollbar{width:5px}.panel-body::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
-.sk-row{display:flex;align-items:flex-start;gap:10px;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);margin-bottom:8px}
-.sk-row .sk-main{flex:1;min-width:0}
-.sk-row .sk-name{font-weight:600;font-size:13px}
-.sk-row .sk-desc{font-size:11.5px;color:var(--faint);margin-top:2px;line-height:1.4}
-.sw{position:relative;width:38px;height:21px;flex:0 0 auto;cursor:pointer}
-.sw input{display:none}
-.sw .track{position:absolute;inset:0;background:var(--s3);border-radius:11px;transition:.15s}
-.sw .knob{position:absolute;top:3px;left:3px;width:15px;height:15px;background:var(--faint);border-radius:50%;transition:.15s}
-.sw input:checked + .track{background:var(--accent-soft)}
-.sw input:checked + .track .knob{transform:translateX(17px);background:var(--accent)}
-.tool-cat{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);margin:14px 0 6px}
-.tool-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;font-size:12.5px}
-.tool-row:hover{background:var(--s2)}
-.tool-row .tdot{width:7px;height:7px;border-radius:50%;background:var(--green);flex:0 0 auto}
-.tool-row .tdot.off{background:var(--faint)}
-.tool-row code{font-size:11px;color:var(--accent-hi)}
-.tool-row .tdesc{color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gw-row{display:flex;align-items:center;justify-content:space-between;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);margin-bottom:8px;font-size:12.5px}
-.gw-prov-row{padding:8px 10px;border-radius:8px;background:var(--s2);border:1px solid var(--border);margin-bottom:6px;font-size:12px}
-.gw-prov-name{font-weight:600;margin-bottom:4px;color:var(--text)}
-.gw-prov-fields{display:flex;gap:6px;align-items:center}
-.gw-input{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:11px;font-family:monospace}
-.gw-input:focus{border-color:var(--accent);outline:none}
-.gw-url{flex:1;min-width:0}
-.gw-timeout{width:60px;text-align:center}
-.comp-row{display:flex;align-items:center;justify-content:space-between;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);margin-bottom:8px;font-size:12.5px}
-.comp-main{flex:1;min-width:0}
-.comp-name{font-weight:600;margin-bottom:2px}
-.comp-desc{font-size:11.5px;color:var(--faint)}
-.comp-risk{font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.08)}
-.gw-stat{font-variant-numeric:tabular-nums;color:var(--dim)}
-.gw-ok{color:var(--green)}.gw-bad{color:var(--accent)}
-.fallback-box{display:flex;gap:8px}
-.fallback-box select{flex:1}
-
-.typing-indicator{display:flex;gap:4px;padding:12px 16px}
-.typing-indicator span{width:8px;height:8px;background:var(--faint);border-radius:50%;animation:blink 1.4s infinite both}
-.typing-indicator span:nth-child(2){animation-delay:.2s}
-.typing-indicator span:nth-child(3){animation-delay:.4s}
-@keyframes blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
-
-/* ---- composer ---- */
-.composer{padding:14px 20px 20px;display:flex;justify-content:center}
-.composer-inner{width:100%;max-width:760px;display:flex;align-items:flex-end;gap:8px;background:var(--s1);border:1px solid var(--border-strong);border-radius:16px;padding:8px 8px 8px 12px;transition:.15s}
-.composer-inner:focus-within{border-color:rgba(226,59,78,.45);box-shadow:0 0 0 4px var(--accent-soft)}
-.attach{width:38px;height:38px;flex:0 0 auto;border-radius:10px;border:none;background:transparent;color:var(--faint);display:grid;place-items:center;cursor:pointer;transition:.12s}
-.attach:hover{color:var(--text);background:var(--s2)}
-.attach svg{width:18px;height:18px}
-.composer textarea{flex:1;border:none;background:transparent;color:var(--text);font-family:inherit;font-size:14.5px;resize:none;outline:none;padding:9px 4px;max-height:140px;line-height:1.5}
-.composer textarea::placeholder{color:var(--faint)}
-.send{width:40px;height:40px;flex:0 0 auto;border-radius:11px;border:none;background:var(--accent);color:#fff;display:grid;place-items:center;cursor:pointer;transition:.15s}
-.send:hover{background:var(--accent-hi)}
-.send:disabled{opacity:.4;cursor:not-allowed}
-.send svg{width:18px;height:18px}
-.send.stopping{background:var(--amber)}
-.send.stopping:hover{background:#c9952a}
-.composer-hint{text-align:center;font-size:11px;color:var(--faint);margin-top:9px}
-
-/* ---- file drop ---- */
-.file-drop-overlay{display:none;position:fixed;inset:0;z-index:1000;background:rgba(226,59,78,.1);border:3px dashed var(--accent);backdrop-filter:blur(4px);justify-content:center;align-items:center;font-size:1.5rem;color:var(--accent)}
-.file-drop-overlay.active{display:flex}
-
-/* ---- settings modal ---- */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:50}
-.overlay.open{display:flex;animation:fade .2s both}
-.modal{width:440px;max-width:92vw;background:var(--s1);border:1px solid var(--border-strong);border-radius:18px;padding:24px;animation:rise .25s cubic-bezier(.2,.7,.2,1) both}
-.modal h2{font-family:"Bricolage Grotesque";font-weight:600;font-size:19px;margin-bottom:4px}
-.modal .modal-sub{color:var(--faint);font-size:12.5px;margin-bottom:20px}
-.field{margin-bottom:15px}
-.field label{display:block;font-size:12px;font-weight:600;color:var(--dim);margin-bottom:7px}
-.field select,.field input{width:100%;padding:11px 12px;border-radius:10px;background:var(--s2);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:13.5px;outline:none;transition:.12s}
-.field select:focus,.field input:focus{border-color:rgba(226,59,78,.45);box-shadow:0 0 0 3px var(--accent-soft)}
-.note{display:flex;gap:9px;align-items:flex-start;padding:11px 12px;border-radius:10px;background:var(--accent-soft);border:1px solid rgba(226,59,78,.2);font-size:12px;color:var(--dim);line-height:1.5;margin-bottom:20px}
-.note svg{width:15px;height:15px;flex:0 0 auto;margin-top:1px;color:var(--accent)}
-.modal-actions{display:flex;gap:10px;justify-content:flex-end}
-.btn-ghost,.btn-primary{padding:10px 18px;border-radius:10px;font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer;border:1px solid transparent}
-.btn-ghost{background:transparent;border-color:var(--border-strong);color:var(--dim)}
-.btn-ghost:hover{color:var(--text)}
-.btn-primary{background:var(--accent);color:#fff}
-.btn-primary:hover{background:var(--accent-hi)}
-
-@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-@keyframes fade{from{opacity:0}to{opacity:1}}
-.chats::-webkit-scrollbar{width:4px}
-.chats::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
-
-/* ---- workspace tree ---- */
-.sb-actions{display:flex;gap:8px}
-.sb-actions .new-chat{flex:1}
-.new-folder{width:42px;flex:0 0 auto;border-radius:11px;border:1px solid var(--border-strong);background:var(--s2);color:var(--dim);display:grid;place-items:center;cursor:pointer;transition:.15s}
-.new-folder:hover{background:var(--s3);color:var(--text)}
-.new-folder svg{width:17px;height:17px}
-.tree-wrap{display:flex;flex-direction:column;min-height:0;flex:1 1 auto}
-.tree{display:flex;flex-direction:column;gap:1px;overflow-y:auto;flex:1 1 auto}
-.tree::-webkit-scrollbar{width:4px}
-.tree::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
-.folder-row{display:flex;align-items:center;gap:7px;padding:8px 8px;border-radius:8px;color:var(--dim);cursor:pointer;font-size:12.5px;font-weight:600;user-select:none}
-.folder-row:hover{background:var(--s2);color:var(--text)}
-.folder-row.drop-target{background:var(--accent-soft);outline:1px dashed var(--accent)}
-.folder-row .caret{width:12px;transition:transform .15s;flex:0 0 auto}
-.folder-row.collapsed .caret{transform:rotate(-90deg)}
-.folder-row .fname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.folder-row .fcount{font-size:10px;color:var(--faint)}
-.folder-row .fmenu{opacity:0;cursor:pointer;font-size:13px;padding:0 2px}
-.folder-row:hover .fmenu{opacity:.7}
-.folder-row .fmenu:hover{opacity:1;color:var(--accent)}
-.session-row{display:flex;align-items:center;gap:8px;padding:7px 9px 7px 22px;border-radius:8px;color:var(--dim);cursor:pointer;font-size:12.5px;transition:.12s}
-.session-row:hover{background:var(--s2);color:var(--text)}
-.session-row.active{background:var(--s2);color:var(--text);box-shadow:inset 2px 0 0 var(--accent)}
-.session-row .dot{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:0 0 auto}
-.session-row .stitle{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.session-row .sclip{font-size:10px;opacity:.6}
-.session-row .del-btn{opacity:0;cursor:pointer;font-size:12px;color:var(--faint)}
-.session-row:hover .del-btn{opacity:.7}
-.session-row:hover .del-btn:hover{opacity:1;color:var(--accent)}
-.tree-empty{text-align:center;color:var(--faint);font-size:12px;padding:1rem}
-
-/* ---- attachment chips ---- */
-.attachments{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
-.att-chip{display:flex;align-items:center;gap:7px;padding:6px 10px;border-radius:10px;background:var(--s2);border:1px solid var(--border-strong);font-size:12px;color:var(--text);max-width:280px}
-.att-chip .ai{color:var(--accent);flex:0 0 auto;display:grid;place-items:center}
-.att-chip .ai svg{width:14px;height:14px}
-.att-chip .aname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.att-chip .aref{font-size:10px;color:var(--faint);flex:0 0 auto}
-.att-chip .emsal{cursor:pointer;color:var(--accent-hi);font-size:11px;font-weight:600;border:none;background:transparent;padding:0 2px;flex:0 0 auto}
-.att-chip .emsal:hover{text-decoration:underline}
-.att-chip .ax{cursor:pointer;color:var(--faint);flex:0 0 auto}
-.att-chip .ax:hover{color:var(--accent)}
-
-/* ---- settings test ---- */
-.test-row{display:flex;align-items:center;gap:10px;margin-bottom:15px}
-.test-row .btn-ghost{padding:8px 14px;font-size:12.5px}
-.test-status{font-size:12px;font-weight:500}
-.test-status.ok{color:var(--green)}
-.test-status.err{color:var(--accent)}
-.test-status.pending{color:var(--amber)}
-
-/* ---- toast ---- */
-.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--s3);border:1px solid var(--border-strong);color:var(--text);padding:11px 18px;border-radius:11px;font-size:13px;z-index:200;opacity:0;pointer-events:none;transition:.25s;box-shadow:0 10px 30px rgba(0,0,0,.4)}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.toast.err{border-color:var(--accent)}
-
-/* ---- copy dropdown ---- */
-.msg-actions{position:relative}
-.copy-menu{position:absolute;bottom:calc(100% + 4px);left:0;min-width:170px;background:var(--s1);border:1px solid var(--border-strong);border-radius:10px;padding:4px;z-index:40;box-shadow:0 8px 24px rgba(0,0,0,.35);animation:rise .15s both;display:none}
-.copy-menu.open{display:block}
-.copy-menu-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:7px;cursor:pointer;font-size:12.5px;color:var(--dim);transition:.12s;white-space:nowrap}
-.copy-menu-item:hover{background:var(--s3);color:var(--text)}
-.copy-menu-item svg{width:14px;height:14px;flex:0 0 auto}
-.copy-menu-sep{height:1px;background:var(--border);margin:4px 8px}
-.copy-chevron-btn{padding:3px 4px !important}
-.copy-chevron-btn svg{width:12px !important;height:12px !important}
-
-/* ---- code blocks ---- */
-.code-block{position:relative;margin:8px 0;border-radius:10px;background:var(--s1);border:1px solid var(--border);overflow:hidden}
-.code-block .code-header{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:var(--s2);border-bottom:1px solid var(--border);font-size:11px;color:var(--faint)}
-.code-block .code-lang{font-family:monospace;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-.code-block .code-copy{background:transparent;border:none;color:var(--dim);cursor:pointer;padding:2px 6px;border-radius:4px;display:flex;align-items:center;gap:4px;font-size:11px;transition:.12s}
-.code-block .code-copy:hover{background:var(--s3);color:var(--text)}
-.code-block pre{margin:0;padding:12px;overflow-x:auto;font-family:"Cascadia Code","Fira Code","JetBrains Mono",monospace;font-size:13px;line-height:1.55;color:var(--text)}
-.code-block pre::-webkit-scrollbar{height:5px}
-.code-block pre::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
-
-/* ---- source copy ---- */
-.source-tag{position:relative;cursor:default}
-.source-tag .src-copy{display:inline-flex;align-items:center;margin-left:4px;cursor:pointer;opacity:0;transition:opacity .15s;background:none;border:none;color:var(--accent-hi);padding:0;vertical-align:middle}
-.source-tag:hover .src-copy{opacity:1}
-.sources-copy-all{font-size:11px;color:var(--faint);cursor:pointer;background:none;border:none;padding:2px 0;margin-left:4px;vertical-align:middle;transition:color .12s}
-.sources-copy-all:hover{color:var(--accent-hi)}
-
-/* ---- memory sidebar section ---- */
-.sb-section{border-top:1px solid var(--border);margin-top:8px;padding-top:8px}
-.sb-section-header{display:flex;align-items:center;justify-content:space-between;padding:4px 9px;cursor:pointer}
-.sb-section-header .sb-label{cursor:pointer}
-.mem-item{display:flex;align-items:flex-start;gap:6px;padding:6px 9px;border-radius:8px;font-size:12px;color:var(--dim);line-height:1.4;position:relative;transition:.12s}
-.mem-item:hover{background:var(--s2);color:var(--text)}
-.mem-item .mem-badge{font-size:9px;text-transform:uppercase;letter-spacing:.04em;padding:1px 5px;border-radius:4px;flex:0 0 auto;margin-top:1px}
-.mem-badge.preference{background:rgba(99,102,241,.15);color:#818cf8}
-.mem-badge.fact{background:rgba(34,197,94,.15);color:#22c55e}
-.mem-badge.instruction{background:rgba(251,146,60,.15);color:#fb923c}
-.mem-item .mem-auto{font-size:8.5px;text-transform:uppercase;letter-spacing:.04em;padding:1px 4px;border-radius:4px;flex:0 0 auto;margin-top:1px;background:var(--accent-soft);color:var(--accent-hi)}
-.mem-item .mem-text{flex:1;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.mem-item .mem-del{opacity:0;cursor:pointer;font-size:11px;color:var(--faint);flex:0 0 auto;display:grid;place-items:center}
-.mem-item .mem-del svg.ico{width:12px;height:12px}
-.mem-clear{margin-left:auto;opacity:0;cursor:pointer;color:var(--faint);display:grid;place-items:center}
-.sb-section-header:hover .mem-clear{opacity:.55}
-.mem-clear:hover{opacity:1 !important;color:var(--accent)}
-.mem-clear svg.ico{width:13px;height:13px;display:block}
-.mem-item:hover .mem-del{opacity:.7}
-.mem-item:hover .mem-del:hover{color:var(--accent)}
-.mem-add-row{display:flex;gap:4px;padding:6px 9px}
-.mem-add-row select{width:80px;padding:4px 6px;border-radius:6px;background:var(--s2);border:1px solid var(--border);color:var(--text);font-size:11px}
-.mem-add-row input{flex:1;padding:4px 8px;border-radius:6px;background:var(--s2);border:1px solid var(--border);color:var(--text);font-size:11px}
-.mem-add-row button{width:26px;height:26px;border-radius:6px;border:none;background:var(--accent);color:#fff;display:grid;place-items:center;cursor:pointer;font-size:13px;flex:0 0 auto}
-.mem-count{font-size:10px;color:var(--faint);background:var(--s2);border:1px solid var(--border);padding:0 5px;border-radius:9999px;min-width:18px;text-align:center}
-
-/* ---- skill save / editor ---- */
-.skill-save-btn{background:rgba(47,191,113,.13)!important;color:var(--green)!important;border:1px solid rgba(47,191,113,.3)!important;padding:2px 8px!important;border-radius:4px!important;display:flex!important;align-items:center!important;gap:4px!important;font-size:11px!important;cursor:pointer!important;margin-left:auto!important}
-.skill-save-btn:hover{background:rgba(47,191,113,.25)!important}
-.sk-add-btn{display:flex;align-items:center;gap:6px;width:100%;padding:10px;border-radius:10px;background:var(--accent-soft);border:1px dashed var(--accent);color:var(--accent);font-size:12.5px;font-weight:600;cursor:pointer;margin-bottom:10px;transition:.12s}
-.sk-add-btn:hover{background:var(--accent);color:#fff}
-.sk-editor{margin-bottom:10px}
-.sk-editor textarea{width:100%;min-height:200px;padding:10px;border-radius:10px;background:var(--s2);border:1px solid var(--border);color:var(--text);font-family:monospace;font-size:12px;resize:vertical;outline:none}
-.sk-editor textarea:focus{border-color:rgba(226,59,78,.45);box-shadow:0 0 0 3px var(--accent-soft)}
-.sk-editor-actions{display:flex;gap:8px;margin-top:8px}
-
-/* ---- daraltılabilir kenar çubuğu ---- */
-.sidebar{transition:width .18s cubic-bezier(.2,.7,.2,1),flex-basis .18s cubic-bezier(.2,.7,.2,1)}
-.brand{display:flex;align-items:center;gap:11px}
-.brand-text{flex:1;min-width:0}
-.sb-collapse{margin-left:auto;width:26px;height:26px;flex:0 0 auto;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--faint);display:grid;place-items:center;cursor:pointer;transition:.12s}
-.sb-collapse:hover{background:var(--s2);color:var(--text)}
-.sb-collapse svg{transition:transform .2s}
-.shell.sidebar-collapsed .sidebar{width:66px;flex:0 0 66px;padding:16px 10px}
-.shell.sidebar-collapsed .brand{justify-content:center;flex-direction:column;gap:10px}
-.shell.sidebar-collapsed .brand-text,
-.shell.sidebar-collapsed .tree-wrap,
-.shell.sidebar-collapsed #memory-section,
-.shell.sidebar-collapsed .modules,
-.shell.sidebar-collapsed .new-chat span{display:none}
-.shell.sidebar-collapsed .sb-actions{flex-direction:column;gap:8px}
-.shell.sidebar-collapsed .new-chat{padding:11px;justify-content:center}
-.shell.sidebar-collapsed .sb-collapse{margin:0}
-.shell.sidebar-collapsed .sb-collapse svg{transform:rotate(180deg)}
-
-@media(max-width:768px){
-  .sidebar{width:60px;flex:0 0 60px;padding:12px 8px}
-  .brand-name,.brand-sub,.sb-label,.new-chat span,.mod-left span,.mod-count,.folder-row .fname,.folder-row .fcount,.session-row .stitle{display:none}
-  .new-chat{padding:11px;border-radius:11px}
-}
-</style>
-</head>
-<body>
-
-<!-- title bar -->
-<div class="titlebar">
-  <div class="tb-left"><span class="tb-flag"></span> Türkiye MCP</div>
-  <div class="tb-controls">
-    <button class="tb-btn" title="Küçült">&#8211;</button>
-    <button class="tb-btn" title="Büyüt">&#9633;</button>
-    <button class="tb-btn close" title="Kapat">&#10005;</button>
-  </div>
-</div>
-
-<div class="shell">
-  <!-- sidebar -->
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-mark">TR</div>
-      <div class="brand-text">
-        <div class="brand-name">Türkiye MCP</div>
-        <div class="brand-sub">Yerel · veriler cihazınızda</div>
-      </div>
-      <button class="sb-collapse" id="sb-collapse-btn" title="Kenar çubuğunu daralt/genişlet" onclick="toggleSidebar()">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-      </button>
-    </div>
-
-    <div class="sb-actions">
-      <button class="new-chat" onclick="newChat()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        <span>Yeni Sohbet</span>
-      </button>
-      <button class="new-folder" onclick="createFolder()" title="Yeni Klasör">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
-      </button>
-    </div>
-
-    <div class="tree-wrap">
-      <div class="sb-label">Çalışma Alanı</div>
-      <div class="tree" id="tree"></div>
-    </div>
-
-    <div class="sb-section" id="memory-section">
-      <div class="sb-section-header" data-act="toggle-mem-section">
-        <div class="sb-label">🧠 Bellek</div>
-        <span class="mem-count" id="mem-count"></span>
-        <span class="mem-clear" title="Belleği temizle" onclick="event.stopPropagation();clearMemories()"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></span>
-      </div>
-      <div id="memory-list"></div>
-      <div class="mem-add-row">
-        <select id="mem-cat"><option value="preference">Tercih</option><option value="fact">Olgu</option><option value="instruction">Talimat</option></select>
-        <input id="mem-input" placeholder="Bellek ekle...">
-        <button data-act="add-memory">+</button>
-      </div>
-    </div>
-
-    <div class="modules">
-      <div class="sb-label">Modüller</div>
-      <div id="module-list"></div>
-    </div>
-  </aside>
-
-  <!-- main -->
-  <main class="main">
-    <div class="topbar">
-      <div style="display:flex;align-items:center;gap:14px">
-        <div class="status" id="server-status"><span class="sdot"></span><span>Bağlanıyor...</span></div>
-        <span id="token-chip" class="token-chip" style="display:none"></span>
-      </div>
-      <div class="topbar-right">
-        <button class="model-chip warn" id="model-chip" onclick="openSettings()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M1 12h4M19 12h4M4.2 19.8 7 17M17 7l2.8-2.8"/></svg>
-          <span id="model-chip-text">API anahtarı gerekli</span>
-        </button>
-        <button class="icon-btn" title="Sistem (Gateway · Skills · Araçlar)" onclick="openSystemPanel()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-        </button>
-        <button class="icon-btn" title="Ayarlar" onclick="openSettings()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
-      </div>
-    </div>
-
-    <div class="canvas" id="chat-area">
-      <!-- welcome screen shown when no active chat -->
-      <div class="hero" id="welcome-screen">
-        <h1 class="display">Türkiye MCP <span class="ac">Asistanı</span></h1>
-        <p>Türk hukuk, mali, ihale ve piyasa verileri hakkında soru sorun. PDF veya EYP/UDF dosyası yükleyip detayları çektirebilirsiniz.</p>
-        <div class="cards">
-          <div class="card" onclick="fill('2025 asgari ücret brüt ve net olarak ne kadar?')">
-            <div class="card-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-            <h3>Asgari Ücret</h3>
-            <div class="desc">2025 asgari ücret ve prim bilgisi</div>
-          </div>
-          <div class="card" onclick="fill('Yargıtay mülkiyet hakkı ile ilgili kararları ara')">
-            <div class="card-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M5 7h14M7 7l-3 7a4 4 0 0 0 6 0L7 7zM17 7l-3 7a4 4 0 0 0 6 0l-3-7zM7 21h10"/></svg></div>
-            <h3>Yargıtay Kararları</h3>
-            <div class="desc">Mülkiyet hakkı içtihatları</div>
-          </div>
-          <div class="card" onclick="fill('Ankara\\'daki aktif kamu ihalelerini listele')">
-            <div class="card-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-6h6v6"/></svg></div>
-            <h3>İhale Arama</h3>
-            <div class="desc">Ankara'daki kamu ihaleleri</div>
-          </div>
-          <div class="card" onclick="document.getElementById('file-input').click()">
-            <div class="card-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h6"/></svg></div>
-            <h3>Belge Yükle</h3>
-            <div class="desc">PDF veya EYP/UDF dosyası</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- file drop overlay -->
-    <div class="file-drop-overlay" id="file-drop-overlay">📄 Dosya yüklemek için bırakın</div>
-    <input type="file" id="file-input" accept=".pdf,.eyp,.udf,.txt,.md" style="display:none" onchange="handleFileUpload(this)">
-
-    <!-- composer -->
-    <div class="composer">
-      <div style="width:100%;max-width:760px">
-        <div class="attachments" id="attachments"></div>
-        <div class="composer-inner">
-          <button class="attach" title="Dosya ekle" onclick="document.getElementById('file-input').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
-          <textarea id="chat-input" rows="1" placeholder="Soru sorun veya dosya yükleyin..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}" oninput="autoResize(this)"></textarea>
-          <button class="send" id="send-btn" onclick="sendMessage()" title="Gönder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
-        </div>
-        <div class="composer-hint">Yanıtlar yapay zekâ tarafından üretilir; nihai karar için teyit edin.</div>
-      </div>
-    </div>
-  </main>
-</div>
-
-<!-- settings modal -->
-<div class="overlay" id="overlay">
-  <div class="modal">
-    <h2 class="display">Ayarlar</h2>
-    <div class="modal-sub">Bağlantı ve tercihlerinizi yönetin.</div>
-    <div class="panel-tabs">
-      <div class="panel-tab active" id="stab-conn" onclick="switchSettingsTab('conn')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/></svg> Bağlantı</div>
-      <div class="panel-tab" id="stab-pref" onclick="switchSettingsTab('pref')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg> Tercihler</div>
-    </div>
-
-    <div id="set-conn">
-      <div class="field">
-        <label>Sağlayıcı</label>
-        <select id="llm-provider" onchange="onProviderChange()">
-          <option value="openrouter">OpenRouter</option>
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="gemini">Google Gemini</option>
-          <option value="ollama_cloud">Ollama Cloud</option>
-          <option value="ollama">Ollama (Yerel)</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Model</label>
-        <select id="llm-model"></select>
-      </div>
-      <div class="field" id="api-key-field">
-        <label>API Anahtarı <span id="api-key-hint" style="font-weight:400;color:var(--faint)"></span></label>
-        <input type="password" id="llm-api-key" placeholder="sk-..." />
-      </div>
-      <div class="test-row">
-        <button class="btn-ghost" type="button" onclick="testConnection()" id="test-btn">⚡ Bağlantıyı Test Et</button>
-        <span id="test-status" class="test-status"></span>
-      </div>
-      <div class="note">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        Anahtarınız yalnızca bu cihazda saklanır. Her sağlayıcı için ayrı anahtar hatırlanır. Ollama Cloud için <b>ollama.com</b> API anahtarınızı girin.
-      </div>
-    </div>
-
-    <div id="set-pref" style="display:none">
-      <div class="field">
-        <label>Tema</label>
-        <select id="ui-theme" onchange="applyTheme(this.value)">
-          <option value="dark">Koyu</option>
-          <option value="light">Açık</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Token bütçesi uyarısı <span style="font-weight:400;color:var(--faint)">(oturum başına)</span></label>
-        <input type="number" id="token-budget" min="0" step="1000" placeholder="örn. 50000 (0 = kapalı)" />
-      </div>
-      <div class="field">
-        <label>Gateway zaman aşımı <span style="font-weight:400;color:var(--faint)">(saniye, 0 = varsayılan)</span></label>
-        <input type="number" id="gw-timeout" min="0" max="600" step="10" placeholder="0" />
-      </div>
-      <div class="field">
-        <label>Otomatik bellek <span style="font-weight:400;color:var(--faint)">(sohbetlerden öğren)</span></label>
-        <select id="auto-memory">
-          <option value="1">Açık — kalıcı bilgileri otomatik hatırla</option>
-          <option value="0">Kapalı</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Veri dizini <span style="font-weight:400;color:var(--faint)">(salt okunur)</span></label>
-        <input type="text" id="data-dir" readonly style="opacity:.7;font-size:12px" />
-      </div>
-    </div>
-
-    <div class="modal-actions">
-      <button class="btn-ghost" onclick="closeSettings()">Vazgeç</button>
-      <button class="btn-primary" onclick="saveConfig()">Kaydet</button>
-    </div>
-  </div>
-</div>
-
-<!-- system panel modal -->
-<div class="overlay" id="sys-overlay">
-  <div class="modal" style="width:560px">
-    <h2 class="display">Sistem</h2>
-    <div class="modal-sub">Gateway durumu, uzmanlık yönergeleri (skills) ve araçlar.</div>
-    <div class="panel-tabs">
-      <div class="panel-tab active" id="tab-gateway" onclick="switchPanelTab('gateway')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg> Gateway</div>
-      <div class="panel-tab" id="tab-skills" onclick="switchPanelTab('skills')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg> Skills</div>
-      <div class="panel-tab" id="tab-tools" onclick="switchPanelTab('tools')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.3-.4-.4-2.3 2.8-2.7z"/></svg> Araçlar</div>
-      <div class="panel-tab" id="tab-computer" onclick="switchPanelTab('computer')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg> Bilgisayar</div>
-    </div>
-    <div class="panel-body">
-      <div id="pane-gateway"></div>
-      <div id="pane-skills" style="display:none"></div>
-      <div id="pane-tools" style="display:none"></div>
-      <div id="pane-computer" style="display:none"></div>
-    </div>
-    <div class="modal-actions" style="margin-top:18px">
-      <button class="btn-primary" onclick="closeSystemPanel()">Kapat</button>
-    </div>
-  </div>
-</div>
-
-<!-- skill confirm modal -->
-<div class="overlay" id="skill-overlay">
-  <div class="modal" style="width:560px">
-    <h2>Skill Kaydet</h2>
-    <div class="modal-sub" id="skill-confirm-name"></div>
-    <div class="sk-editor">
-      <textarea id="skill-confirm-content" placeholder="SKILL.md icerigi..."></textarea>
-    </div>
-    <div class="modal-actions">
-      <button class="btn-ghost" data-act="cancel-skill-save">Iptal</button>
-      <button class="btn-primary" data-act="confirm-skill-save">Kaydet</button>
-    </div>
-  </div>
-</div>
-
-<script>
-// ===== State =====
-const PROVIDERS = {
-  openrouter: { name: "OpenRouter", needs_key: true, models: ["openai/gpt-4o-mini","anthropic/claude-3.5-sonnet","google/gemini-2.0-flash","meta-llama/llama-3.1-8b-instruct"], default_model: "openai/gpt-4o-mini" },
-  openai: { name: "OpenAI", needs_key: true, models: ["gpt-4o-mini","gpt-4o","gpt-4-turbo"], default_model: "gpt-4o-mini" },
-  anthropic: { name: "Anthropic", needs_key: true, models: ["claude-sonnet-4-20250514","claude-haiku-4-20250414"], default_model: "claude-haiku-4-20250414" },
-  gemini: { name: "Google Gemini", needs_key: true, models: ["gemini-2.0-flash","gemini-1.5-pro"], default_model: "gemini-2.0-flash" },
-  ollama_cloud: { name: "Ollama Cloud", needs_key: true, models: ["gpt-oss:120b","gpt-oss:20b","deepseek-v3.1:671b","qwen3-coder:480b","glm-4.6","kimi-k2:1t","qwen3:235b"], default_model: "gpt-oss:120b" },
-  ollama: { name: "Ollama (Yerel)", needs_key: false, models: ["llama3.2","llama3.1","mistral","qwen2.5","gemma2","gpt-oss:20b"], default_model: "llama3.2" },
-};
-
-// Çalışma alanı durumu (sunucu = kaynak; localStorage = yedek)
-let folders = [];               // [{id,name,created}]
-let chats = JSON.parse(localStorage.getItem('turkiye_mcp_chats') || '[]'); // tam oturumlar (cache)
-let activeChatId = localStorage.getItem('turkiye_mcp_active_chat') || null;
-let collapsed = JSON.parse(localStorage.getItem('turkiye_mcp_collapsed') || '{}');
-let serverOk = false;           // workspace API erişilebilir mi
-let draggingSessionId = null;
-
-// LLM yapılandırması — sağlayıcı başına ayrı anahtar
-let currentProvider = localStorage.getItem('llm-provider') || 'openrouter';
-let currentModel = localStorage.getItem('llm-model') || '';
-let apiKeys = {};
-try { apiKeys = JSON.parse(localStorage.getItem('llm-keys') || '{}'); } catch(e) { apiKeys = {}; }
-// Geriye uyumluluk: eski tek anahtar
-if (localStorage.getItem('llm-api-key') && !apiKeys[currentProvider]) {
-  apiKeys[currentProvider] = localStorage.getItem('llm-api-key');
-}
-function keyFor(p){ return apiKeys[p] || ''; }
-// Failover: yedek model zinciri [{provider, model}]
-let fallbacks = [];
-try { fallbacks = JSON.parse(localStorage.getItem('llm-fallbacks') || '[]'); } catch(e) { fallbacks = []; }
-function getFallbacks(){ return fallbacks; }
-// Tercihler
-let currentTheme = localStorage.getItem('ui-theme') || 'dark';
-let tokenBudget = parseInt(localStorage.getItem('token-budget') || '0', 10) || 0;
-let gwTimeout = parseInt(localStorage.getItem('gw-timeout') || '0', 10) || 0;
-let autoMemory = localStorage.getItem('auto-memory') !== '0'; // varsayılan açık
-let budgetWarned = false;
-function applyTheme(v){
-  currentTheme = v || 'dark';
-  document.body.classList.toggle('light', currentTheme === 'light');
-  localStorage.setItem('ui-theme', currentTheme);
-}
-
-// Daraltılabilir kenar çubuğu
-let sidebarCollapsed = localStorage.getItem('sidebar-collapsed') === '1';
-function applySidebar(){
-  const shell = document.querySelector('.shell');
-  if (shell) shell.classList.toggle('sidebar-collapsed', sidebarCollapsed);
-}
-function toggleSidebar(){
-  sidebarCollapsed = !sidebarCollapsed;
-  localStorage.setItem('sidebar-collapsed', sidebarCollapsed ? '1' : '0');
-  applySidebar();
-}
-
-// ===== Profesyonel ikon seti (lucide tarzı, tek tip çizgi ikonlar) =====
-const ICONS = {
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
-  trash: '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
-  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
-  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
-  check: '<path d="M20 6 9 17l-5-5"/>',
-  x: '<path d="M18 6 6 18M6 6l12 12"/>',
-  scale: '<path d="M12 3v18M5 7h14M7 7l-3 7a4 4 0 0 0 6 0zM17 7l-3 7a4 4 0 0 0 6 0zM7 21h10"/>',
-  plug: '<path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/>',
-  zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/>',
-  wrench: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.3-.4-.4-2.3 2.8-2.7z"/>',
-  sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
-  cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 6.7 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 13.4H3a2 2 0 0 1 0-4h.1A1.6 1.6 0 0 0 5 6.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 10.6 3V3a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-1.1 2.7H21a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
-  refs: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/>',
-  clipboard: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>',
-  filetext: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/>',
-  chevron: '<path d="m6 9 6 6 6-6"/>'
-};
-function ic(name, cls){
-  return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || '') + '</svg>';
-}
-let isSending = false;
-let saveTimer = null;
-
-// ===== Toast =====
-function toast(msg, isErr) {
-  let t = document.getElementById('toast');
-  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
-  t.textContent = msg;
-  t.className = 'toast show' + (isErr ? ' err' : '');
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => { t.className = 'toast' + (isErr ? ' err' : ''); }, 2600);
-}
-
-// ===== Server sync =====
-async function api(path, opts) {
-  const res = await fetch(path, opts);
-  if (!res.ok && res.status >= 500) throw new Error('server ' + res.status);
-  return res;
-}
-
-async function bootstrapWorkspace() {
-  try {
-    const res = await fetch('/api/workspace', {signal: AbortSignal.timeout(4000)});
-    const data = await res.json();
-    if (data.error) { serverOk = false; return; }
-    serverOk = true;
-    folders = data.folders || [];
-    // Sunucu oturum metalarını yerel cache ile birleştir
-    const metas = data.sessions || [];
-    const byId = {};
-    chats.forEach(c => byId[c.id] = c);
-    // Sunucudaki her oturum için meta'yı uygula (mesajlar tembel yüklenir)
-    metas.forEach(m => {
-      const ex = byId[m.id];
-      if (ex) { ex.title = m.title; ex.folderId = m.folderId; ex.updated = m.updated; ex._meta = true; }
-      else { byId[m.id] = { id: m.id, title: m.title, folderId: m.folderId, updated: m.updated, messages: null, attachments: [], _meta: true }; }
-    });
-    chats = Object.values(byId).sort((a,b) => (b.updated||0) - (a.updated||0));
-  } catch(e) {
-    serverOk = false; // localStorage moduna düş
-  }
-}
-
-// ===== Server Status =====
-async function checkServerStatus() {
-  try {
-    const res = await fetch('/health', {signal: AbortSignal.timeout(3000)});
-    const data = await res.json();
-    const el = document.getElementById('server-status');
-    el.className = 'status';
-    el.innerHTML = '<span class="sdot"></span><span>' + (data.active_count||'?') + '/' + (data.total_count||'?') + ' modül aktif</span>';
-  } catch(e) {
-    const el = document.getElementById('server-status');
-    el.className = 'status off';
-    el.innerHTML = '<span class="sdot"></span><span>Bağlantı hatası</span>';
-  }
-}
-checkServerStatus();
-setInterval(checkServerStatus, 30000);
-
-// ===== Chat & Workspace Management =====
-function generateId() { return 's_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
-
-function generateTitle(msg) {
-  const lower = msg.toLowerCase();
-  const titleMap = {
-    'yargitay':'Yargıtay Kararları','danistay':'Danıştay Kararları',
-    'anayasa':'Anayasa Mahkemesi','asgari':'Asgari Ücret','resmi gazete':'Resmi Gazete',
-    'ihale':'İhale Arama','borsa':'Borsa Verileri','doviz':'Döviz Kurları',
-    'emsal':'Emsal Kararlar','sgk':'SGK Sorgulama','iskur':'İŞKUR Duyuruları',
-    'mevzuat':'Mevzuat Arama','gib':'GİB Sirküler','kvkk':'KVKK Kararları',
-    'kik':'KİK Kararları','sayistay':'Sayıştay Kararları',
-  };
-  for (const [kw, title] of Object.entries(titleMap)) {
-    if (lower.includes(kw)) return title;
-  }
-  return msg.length > 35 ? msg.substring(0, 35) + '...' : msg;
-}
-
-function getActiveChat() { return chats.find(c => c.id === activeChatId); }
-
-function newChat(folderId) {
-  const chat = { id: generateId(), title: 'Yeni Sohbet', messages: [], attachments: [], folderId: folderId || null, created: Date.now(), updated: Date.now() };
-  chats.unshift(chat);
-  activeChatId = chat.id;
-  saveChats();
-  renderTree();
-  renderChat();
-  document.getElementById('chat-input').focus();
-}
-
-function saveChats() {
-  // Yalnızca yüklenmiş (mesajları olan) oturumları yerel cache'e yaz
-  const cache = chats.filter(c => Array.isArray(c.messages));
-  try { localStorage.setItem('turkiye_mcp_chats', JSON.stringify(cache)); } catch(e) {}
-  localStorage.setItem('turkiye_mcp_active_chat', activeChatId || '');
-}
-
-// Sunucuya kalıcı kaydet (debounce)
-function persistSession(chat, immediate) {
-  if (!chat) return;
-  saveChats();
-  if (!serverOk) return;
-  const doSave = () => {
-    fetch('/api/workspace/session', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        id: chat.id, title: chat.title, folderId: chat.folderId || null,
-        messages: chat.messages || [], attachments: chat.attachments || [],
-        created: chat.created, updated: Date.now()
-      })
-    }).catch(()=>{});
-  };
-  clearTimeout(saveTimer);
-  if (immediate) doSave(); else saveTimer = setTimeout(doSave, 700);
-}
-
-// ----- Klasör işlemleri -----
-async function createFolder() {
-  const name = prompt('Klasör adı:', 'Yeni Klasör');
-  if (!name) return;
-  if (serverOk) {
-    try {
-      const r = await (await fetch('/api/workspace/folder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',name})})).json();
-      if (r.folder) folders.push(r.folder);
-    } catch(e) { toast('Klasör oluşturulamadı', true); return; }
-  } else {
-    folders.push({ id: 'f_' + Date.now().toString(36), name, created: Date.now() });
-  }
-  renderTree();
-}
-
-async function renameFolder(id) {
-  const f = folders.find(x => x.id === id); if (!f) return;
-  const name = prompt('Klasör adı:', f.name);
-  if (!name) return;
-  f.name = name;
-  if (serverOk) fetch('/api/workspace/folder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'rename',id,name})}).catch(()=>{});
-  renderTree();
-}
-
-async function deleteFolder(id) {
-  if (!confirm('Klasör silinsin mi? İçindeki sohbetler "Genel" altına taşınır.')) return;
-  folders = folders.filter(f => f.id !== id);
-  chats.forEach(c => { if (c.folderId === id) c.folderId = null; });
-  if (serverOk) fetch('/api/workspace/folder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id})}).catch(()=>{});
-  renderTree();
-}
-
-function toggleFolder(id) {
-  collapsed[id] = !collapsed[id];
-  localStorage.setItem('turkiye_mcp_collapsed', JSON.stringify(collapsed));
-  renderTree();
-}
-
-function moveSession(sessionId, folderId) {
-  const c = chats.find(x => x.id === sessionId); if (!c) return;
-  c.folderId = folderId;
-  if (serverOk) fetch('/api/workspace/session/delete', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:sessionId,action:'move',folderId})}).catch(()=>{});
-  persistSession(c, true);
-  renderTree();
-}
-
-// ----- Ağaç çizimi (data-attribute + delegated listener) -----
-function sessionRowHtml(c) {
-  const clip = (c.attachments && c.attachments.length) ? '<span class="sclip">📎</span>' : '';
-  const act = (c.id === activeChatId ? ' active' : '');
-  return '<div class="session-row' + act + '" draggable="true" data-row="session" data-id="' + c.id + '">' +
-    '<span class="dot"></span>' + clip +
-    '<span class="stitle">' + escapeHtml(c.title || 'Sohbet') + '</span>' +
-    '<span class="del-btn" data-act="del-session" data-id="' + c.id + '">×</span></div>';
-}
-
-function folderRowHtml(fid, name, count, isCol, isGeneral) {
-  const menu = isGeneral ? '' : (
-    '<span class="fmenu" title="Yeni sohbet" data-act="folder-new" data-fid="' + fid + '">' + ic('plus') + '</span>' +
-    '<span class="fmenu" title="Yeniden adlandır" data-act="folder-rename" data-fid="' + fid + '">' + ic('edit') + '</span>' +
-    '<span class="fmenu" title="Sil" data-act="folder-del" data-fid="' + fid + '">' + ic('trash') + '</span>');
-  return '<div class="folder-row' + (isCol ? ' collapsed' : '') + '" data-row="folder" data-fid="' + fid + '">' +
-    '<svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>' +
-    '<span class="fname">' + escapeHtml(name) + '</span>' +
-    '<span class="fcount">' + count + '</span>' + menu + '</div>';
-}
-
-function renderTree() {
-  const tree = document.getElementById('tree');
-  if (!tree) return;
-  let html = '';
-
-  folders.forEach(f => {
-    const fSessions = chats.filter(c => c.folderId === f.id);
-    const isCol = !!collapsed[f.id];
-    html += folderRowHtml(f.id, f.name, fSessions.length, isCol, false);
-    if (!isCol) html += fSessions.map(sessionRowHtml).join('');
-  });
-
-  const ungrouped = chats.filter(c => !c.folderId);
-  const genCol = !!collapsed['__general__'];
-  if (folders.length > 0 || ungrouped.length > 0) {
-    html += folderRowHtml('__general__', 'Genel', ungrouped.length, genCol, true);
-    if (!genCol) html += ungrouped.map(sessionRowHtml).join('');
-  }
-
-  if (chats.length === 0 && folders.length === 0) {
-    html = '<div class="tree-empty">Henüz sohbet yok.<br>Bir soru sorun veya klasör oluşturun.</div>';
-  }
-  tree.innerHTML = html;
-}
-
-// Ağaç olaylarını tek bir delegasyonla bağla (bir kez)
-function setupTree() {
-  const tree = document.getElementById('tree');
-  if (!tree || tree._wired) return;
-  tree._wired = true;
-
-  tree.addEventListener('click', (e) => {
-    const actEl = e.target.closest('[data-act]');
-    if (actEl) {
-      e.stopPropagation();
-      const act = actEl.getAttribute('data-act');
-      const fid = actEl.getAttribute('data-fid');
-      const id = actEl.getAttribute('data-id');
-      if (act === 'del-session') deleteChat(id);
-      else if (act === 'folder-new') newChat(fid);
-      else if (act === 'folder-rename') renameFolder(fid);
-      else if (act === 'folder-del') deleteFolder(fid);
-      return;
-    }
-    const folderRow = e.target.closest('.folder-row');
-    if (folderRow) { toggleFolder(folderRow.getAttribute('data-fid')); return; }
-    const sessRow = e.target.closest('.session-row');
-    if (sessRow) selectChat(sessRow.getAttribute('data-id'));
-  });
-
-  tree.addEventListener('dragstart', (e) => {
-    const row = e.target.closest('.session-row');
-    if (row) draggingSessionId = row.getAttribute('data-id');
-  });
-  tree.addEventListener('dragover', (e) => {
-    const fr = e.target.closest('.folder-row');
-    if (fr) { e.preventDefault(); fr.classList.add('drop-target'); }
-  });
-  tree.addEventListener('dragleave', (e) => {
-    const fr = e.target.closest('.folder-row');
-    if (fr) fr.classList.remove('drop-target');
-  });
-  tree.addEventListener('drop', (e) => {
-    const fr = e.target.closest('.folder-row');
-    if (fr && draggingSessionId) {
-      e.preventDefault();
-      fr.classList.remove('drop-target');
-      const fid = fr.getAttribute('data-fid');
-      moveSession(draggingSessionId, fid === '__general__' ? null : fid);
-      draggingSessionId = null;
-    }
-  });
-}
-
-// Sidebar bellek aksiyonları (data-act delegasyonu)
-(function() {
-  const sidebar = document.querySelector('.sidebar');
-  if (!sidebar || sidebar._memWired) return;
-  sidebar._memWired = true;
-  sidebar.addEventListener('click', function(e) {
-    const actEl = e.target.closest('[data-act]');
-    if (!actEl) return;
-    const act = actEl.getAttribute('data-act');
-    const memId = actEl.getAttribute('data-mem-id');
-    if (act === 'add-memory') addMemory();
-    else if (act === 'del-memory') deleteMemory(memId);
-    else if (act === 'new-skill') { skillEditorOpen = true; loadSkillsPane(); }
-    else if (act === 'save-new-skill') saveNewSkillFromEditor();
-    else if (act === 'confirm-skill-save') confirmSaveSkill();
-    else if (act === 'cancel-skill-save') closeSkillConfirm();
-    else if (act === 'save-gw-config') saveGwConfig();
-  });
-})();
-
-async function selectChat(id) {
-  activeChatId = id;
-  const chat = getActiveChat();
-  // Mesajlar tembel yüklü değilse sunucudan getir
-  if (chat && chat.messages === null && serverOk) {
-    try {
-      const full = await (await fetch('/api/workspace/session?id=' + encodeURIComponent(id))).json();
-      if (full && !full.error) { chat.messages = full.messages || []; chat.attachments = full.attachments || []; chat.created = full.created; }
-      else chat.messages = [];
-    } catch(e) { chat.messages = []; }
-  }
-  saveChats();
-  renderTree();
-  renderChat();
-}
-
-function deleteChat(id) {
-  chats = chats.filter(c => c.id !== id);
-  if (activeChatId === id) activeChatId = null;
-  if (serverOk) fetch('/api/workspace/session/delete', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:'delete'})}).catch(()=>{});
-  saveChats();
-  renderTree();
-  renderChat();
-}
-
-function renderChat() {
-  const area = document.getElementById('chat-area');
-  const welcome = document.getElementById('welcome-screen');
-  const chat = getActiveChat();
-  renderAttachments();
-  updateTokenChip();
-
-  if (!chat || !chat.messages || chat.messages.length === 0) {
-    welcome.style.display = 'flex';
-    area.querySelectorAll('.msg').forEach(el => el.remove());
-    return;
-  }
-
-  welcome.style.display = 'none';
-  area.querySelectorAll('.msg').forEach(el => el.remove());
-
-  chat.messages.forEach((m, idx) => {
-    const div = document.createElement('div');
-    div.className = 'msg ' + m.role;
-    div.setAttribute('data-msg-idx', idx);
-    if (m.role === 'assistant') {
-      div.innerHTML = '<div class="msg-bubble"><div class="msg-content">' + renderMarkdown(m.text) + '</div>' +
-        (m.sources ? renderSources(m.sources) : '') + renderMsgMeta(m) +
-        '<div class="msg-actions">' +
-        '<button data-copy-act="plain" title="Duz metin olarak kopyala">' + ic('copy') + '</button>' +
-        '<button data-copy-act="toggle-menu" title="Kopyalama secenekleri" class="copy-chevron-btn">' + ic('chevron') + '</button>' +
-        '<div class="copy-menu">' +
-        '<div class="copy-menu-item" data-copy-act="plain">' + ic('copy') + ' Duz metin</div>' +
-        '<div class="copy-menu-item" data-copy-act="markdown">' + ic('clipboard') + ' Markdown</div>' +
-        '<div class="copy-menu-sep"></div>' +
-        '<div class="copy-menu-item" data-copy-act="word">' + ic('download') + ' Word olarak indir</div>' +
-        '</div></div></div>';
-    } else {
-      div.innerHTML = '<div class="msg-bubble">' + escapeHtml(m.text) + (m.sources ? renderSources(m.sources) : '') + '</div>';
-    }
-    area.appendChild(div);
-  });
-  area.scrollTop = area.scrollHeight;
-  detectSkillBlocks();
-}
-
-// ----- Ekli belgeler (chips) -----
-function renderAttachments() {
-  const box = document.getElementById('attachments');
-  if (!box) return;
-  const chat = getActiveChat();
-  const atts = (chat && chat.attachments) || [];
-  if (!atts.length) { box.innerHTML = ''; return; }
-  box.innerHTML = atts.map((a, i) =>
-    '<div class="att-chip">' +
-      '<span class="ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>' +
-      '<span class="aname">' + escapeHtml(a.name) + '</span>' +
-      (a.refCount ? '<span class="aref">' + a.refCount + ' ref</span>' : '') +
-      '<button class="emsal" title="Bu belge için emsal kararları ara" onclick="searchEmsal(' + i + ')">' + ic('scale') + ' Emsal</button>' +
-      '<span class="ax" title="Kaldır" onclick="removeAttachment(' + i + ')">' + ic('x') + '</span>' +
-    '</div>'
-  ).join('');
-}
-
-function removeAttachment(i) {
-  const chat = getActiveChat(); if (!chat || !chat.attachments) return;
-  chat.attachments.splice(i, 1);
-  persistSession(chat, true);
-  renderChat();
-}
-
-function searchEmsal(i) {
-  const chat = getActiveChat(); if (!chat || !chat.attachments || !chat.attachments[i]) return;
-  const a = chat.attachments[i];
-  const q = 'Bu belgedeki uyuşmazlık için emsal kararları ve içtihatları detaylıca getir: ' + (a.name || 'belge');
-  document.getElementById('chat-input').value = q;
-  sendMessage();
-}
-
-function buildDocumentContext() {
-  const chat = getActiveChat();
-  if (!chat || !chat.attachments || !chat.attachments.length) return '';
-  return chat.attachments.map(a =>
-    '### ' + a.name + (a.refs && a.refs.length ? ' (Referanslar: ' + a.refs.map(r=>r.value).join(', ') + ')' : '') + '\\n' + (a.text || '')
-  ).join('\\n\\n').substring(0, 14000);
-}
-
-function renderSources(sources) {
-  if (!sources || sources.length === 0) return '';
-  const tags = sources.map(s => {
-    const safe = escapeHtml(s);
-    return '<span class="source-tag" data-source="' + safe.replace(/"/g, '&quot;') + '">' + safe +
-      '<button data-copy-act="copy-source" title="Kaynagi kopyala" class="src-copy">' + ic('copy') + '</button></span>';
-  }).join('');
-  return '<div class="sources">' + tags + '<button data-copy-act="copy-all-sources" class="sources-copy-all">Tumunu kopyala</button></div>';
-}
-
-function renderMsgMeta(m) {
-  let html = '';
-  if (m.skillsUsed && m.skillsUsed.length) {
-    html += '<div class="skill-tags">' + m.skillsUsed.map(s => '<span class="skill-tag">⚡ ' + escapeHtml(s) + '</span>').join('') + '</div>';
-  }
-  const bits = [];
-  if (m.usedModel) bits.push(escapeHtml(m.usedModel));
-  if (m.fellBack) bits.push('🔁 yedek modele geçildi');
-  if (m.usage && m.usage.total) {
-    let t = '🔢 ' + fmtNum(m.usage.total) + ' token';
-    if (m.usage.prompt || m.usage.completion) t += ' (' + fmtNum(m.usage.prompt||0) + '→' + fmtNum(m.usage.completion||0) + ')';
-    bits.push(t);
-  }
-  if (m.context && m.context.window) {
-    const pct = Math.round((m.context.ratio || 0) * 100);
-    bits.push('📊 bağlam ~%' + pct + ' (' + fmtNum(m.context.window) + ')');
-  }
-  if (bits.length) html += '<div class="msg-foot">' + bits.join(' · ') + '</div>';
-  return html;
-}
-
-function fmtNum(n) { return (n||0).toLocaleString('tr-TR'); }
-
-function updateTokenChip() {
-  const el = document.getElementById('token-chip');
-  if (!el) return;
-  const chat = getActiveChat();
-  const t = (chat && chat.tokenTotal) || 0;
-  if (t > 0) {
-    el.style.display = '';
-    const over = tokenBudget > 0 && t >= tokenBudget;
-    el.textContent = '🔢 ' + fmtNum(t) + ' token' + (tokenBudget > 0 ? (' / ' + fmtNum(tokenBudget)) : '');
-    el.classList.toggle('warn', over);
-    if (over && !budgetWarned) { budgetWarned = true; toast('⚠️ Token bütçesi aşıldı (' + fmtNum(t) + ')', true); }
-  } else { el.style.display = 'none'; el.classList.remove('warn'); }
-}
-
-function escapeHtml(text) {
-  return String(text == null ? '' : text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-// ===== Markdown Render =====
-// NOT: Bu fonksiyon Python üçlü-tırnak string'i içinde olduğundan
-// tarayıcıya ulaşması gereken HER ters bölü ÇİFT yazılır (\\n, \\d, \\* ...).
-function renderMarkdown(text) {
-  if (!text) return '';
-  // 1. Extract fenced code blocks before any processing
-  const codeBlocks = [];
-  let processed = text.replace(/```(\\w*)\\n([\\s\\S]*?)```/g, function(match, lang, code) {
-    const idx = codeBlocks.length;
-    codeBlocks.push({lang: lang || '', code: code});
-    return '%%CB_' + idx + '%%';
-  });
-  // 2. Escape HTML
-  let html = escapeHtml(processed);
-  // 3. Standard markdown rules
-  html = html.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>');
-  html = html.replace(/\\*(.*?)\\*/g, '<em>$1</em>');
-  html = html.replace(/^### (.*?)(?:\\n|$)/gm, '<h4>$1</h4>');
-  html = html.replace(/^## (.*?)(?:\\n|$)/gm, '<h3>$1</h3>');
-  html = html.replace(/^# (.*?)(?:\\n|$)/gm, '<h2>$1</h2>');
-  // Tablolar
-  html = html.replace(/\\n\\|(.+)\\|\\n\\|[-| :]+\\|\\n((?:\\|.+\\|\\n?)+)/g, function(match, header, body) {
-    const ths = header.split('|').map(s=>s.trim()).filter(Boolean).map(s=>'<th>'+s+'</th>').join('');
-    const rows = body.trim().split('\\n').map(row=>{
-      const tds = row.split('|').map(s=>s.trim()).filter(Boolean).map(s=>'<td>'+s+'</td>').join('');
-      return '<tr>'+tds+'</tr>';
-    }).join('');
-    return '<table class="md-table"><thead><tr>'+ths+'</tr></thead><tbody>'+rows+'</tbody></table>';
-  });
-  html = html.replace(/^[-*] (.*?)(?:\\n|$)/gm, '<li>$1</li>');
-  html = html.replace(/((?:<li>.*<\\/li>\\n?)+)/g, '<ul>$1</ul>');
-  html = html.replace(/^\\d+\\. (.*?)(?:\\n|$)/gm, '<li>$1</li>');
-  html = html.replace(/^---$/gm, '<hr>');
-  html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\\n/g, '<br>');
-  html = html.replace(/(<\\/h[234]>)<br>/g, '$1');
-  html = html.replace(/(<\\/table>)<br>/g, '$1');
-  html = html.replace(/(<\\/ul>)<br>/g, '$1');
-  html = html.replace(/(<hr>)<br>/g, '$1');
-  // 4. Restore fenced code blocks as rendered HTML
-  html = html.replace(/%%CB_(\\d+)%%/g, function(match, idxStr) {
-    const idx = parseInt(idxStr, 10);
-    if (idx >= codeBlocks.length) return match;
-    const block = codeBlocks[idx];
-    const langLabel = block.lang ? '<span class="code-lang">' + escapeHtml(block.lang) + '</span>' : '';
-    const copyBtn = '<button data-copy-act="copy-code" class="code-copy" title="Kopyala">' + ic('copy') + ' Kopyala</button>';
-    return '<div class="code-block"><div class="code-header">' + langLabel + copyBtn + '</div><pre>' + escapeHtml(block.code) + '</pre></div>';
-  });
-  return html;
-}
-
-// ===== Multi-format Copy & Export =====
-function getMsgData(el) {
-  const msgEl = el.closest('.msg');
-  if (!msgEl) return null;
-  const idx = parseInt(msgEl.getAttribute('data-msg-idx'), 10);
-  const chat = getActiveChat();
-  if (!chat || !chat.messages || isNaN(idx) || idx < 0 || idx >= chat.messages.length) return null;
-  return chat.messages[idx];
-}
-
-function flashBtn(btn, icon) {
-  btn.innerHTML = ic('check');
-  setTimeout(function() { btn.innerHTML = ic(icon); }, 1500);
-}
-
-function copyAsPlainText(btn) {
-  const bubble = btn.closest('.msg-bubble');
-  const content = bubble.querySelector('.msg-content');
-  const text = content ? content.innerText : bubble.innerText;
-  navigator.clipboard.writeText(text).then(function() { flashBtn(btn, 'copy'); });
-}
-
-function copyAsMarkdown(btn) {
-  const msg = getMsgData(btn);
-  if (!msg) return;
-  const md = msg.text || '';
-  navigator.clipboard.writeText(md).then(function() { flashBtn(btn, 'clipboard'); });
-}
-
-function exportWord(btn) {
-  const bubble = btn.closest('.msg-bubble');
-  const content = bubble.querySelector('.msg-content');
-  const htmlContent = content ? content.innerHTML : bubble.innerHTML;
-  const chat = getActiveChat();
-  const title = chat ? chat.title : 'TurkiyeMCP';
-  const fullHtml = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title><style>body{font-family:"Segoe UI",Tahoma,sans-serif;font-size:11pt;color:#1a1a2e}table{border-collapse:collapse;width:100%;margin:8pt 0}th,td{border:1px solid #ccc;padding:4pt 8pt;font-size:10pt}th{background:#6366f1;color:#fff}h2{color:#6366f1}h3{color:#818cf8}h4{color:#a5b4fc}code{background:#f1f5f9;padding:1pt 3pt;border-radius:3pt;font-size:10pt}strong{color:#6366f1}em{color:#8b5cf6}pre{background:#f1f5f9;padding:8pt;border-radius:4pt;font-family:Consolas,monospace;font-size:9pt}</style></head><body>' + htmlContent + '</body></html>';
-  const blob = new Blob(['﻿', fullHtml], {type: 'application/msword'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = title.replace(/[^a-zA-Z0-9À-ÿ]/g, '_') + '.doc';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  flashBtn(btn, 'download');
-}
-
-function toggleCopyMenu(btn) {
-  const actions = btn.closest('.msg-actions');
-  const menu = actions.querySelector('.copy-menu');
-  document.querySelectorAll('.copy-menu.open').forEach(function(m) {
-    if (m !== menu) m.classList.remove('open');
-  });
-  menu.classList.toggle('open');
-}
-
-function copyCodeBlock(btn) {
-  const block = btn.closest('.code-block');
-  const code = block.querySelector('pre');
-  if (!code) return;
-  navigator.clipboard.writeText(code.textContent).then(function() {
-    btn.innerHTML = ic('check') + ' Kopyala';
-    setTimeout(function() { btn.innerHTML = ic('copy') + ' Kopyala'; }, 1500);
-  });
-}
-
-function copySource(btn) {
-  const text = btn.getAttribute('data-source') || '';
-  navigator.clipboard.writeText(text).then(function() {
-    btn.innerHTML = ic('check');
-    setTimeout(function() { btn.innerHTML = ic('copy'); }, 1500);
-  });
-}
-
-function copyAllSources(btn) {
-  const sourcesEl = btn.closest('.sources');
-  if (!sourcesEl) return;
-  const tags = sourcesEl.querySelectorAll('.source-tag');
-  const texts = Array.from(tags).map(function(t) { return t.getAttribute('data-source') || t.textContent.trim(); });
-  navigator.clipboard.writeText(texts.join('\\n')).then(function() {
-    btn.textContent = 'Kopyalandi';
-    setTimeout(function() { btn.textContent = 'Tumunu kopyala'; }, 1500);
-  });
-}
-
-// Close copy menus when clicking outside
-document.addEventListener('click', function(e) {
-  if (!e.target.closest('.msg-actions')) {
-    document.querySelectorAll('.copy-menu.open').forEach(function(m) { m.classList.remove('open'); });
-  }
-});
-
-// Delegated click handler for copy actions
-document.getElementById('chat-area').addEventListener('click', function(e) {
-  const actEl = e.target.closest('[data-copy-act]');
-  if (!actEl) return;
-  e.stopPropagation();
-  const act = actEl.getAttribute('data-copy-act');
-  if (act === 'plain') copyAsPlainText(actEl);
-  else if (act === 'markdown') copyAsMarkdown(actEl);
-  else if (act === 'word') exportWord(actEl);
-  else if (act === 'toggle-menu') toggleCopyMenu(actEl);
-  else if (act === 'copy-code') copyCodeBlock(actEl);
-  else if (act === 'copy-source') copySource(actEl);
-  else if (act === 'copy-all-sources') copyAllSources(actEl);
-  else if (act === 'save-skill') saveSkillFromBlock(actEl);
-});
-
-// ===== Send Message =====
-function fill(msg) { document.getElementById('chat-input').value = msg; document.getElementById('chat-input').focus(); autoResize(document.getElementById('chat-input')); }
-function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 140) + 'px'; }
-
-// ===== Paste Handler =====
-(function() {
-  var chatInput = document.getElementById('chat-input');
-  if (!chatInput) return;
-  chatInput.addEventListener('paste', function(e) {
-    var html = e.clipboardData.getData('text/html');
-    if (html) {
-      e.preventDefault();
-      var text = e.clipboardData.getData('text/plain') || '';
-      var start = chatInput.selectionStart;
-      var end = chatInput.selectionEnd;
-      var before = chatInput.value.substring(0, start);
-      var after = chatInput.value.substring(end);
-      chatInput.value = before + text + after;
-      chatInput.selectionStart = chatInput.selectionEnd = start + text.length;
-      autoResize(chatInput);
-    }
-    setTimeout(function() { autoResize(chatInput); }, 0);
-  });
-})();
-
-let currentAbort = null;
-const SEND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>';
-const STOP_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
-
-function setSendMode(sending) {
-  const btn = document.getElementById('send-btn');
-  if (!btn) return;
-  if (sending) {
-    btn.innerHTML = STOP_ICON; btn.classList.add('stopping');
-    btn.title = 'Durdur'; btn.onclick = stopGeneration;
-  } else {
-    btn.innerHTML = SEND_ICON; btn.classList.remove('stopping');
-    btn.title = 'Gönder'; btn.onclick = sendMessage;
-  }
-}
-
-function stopGeneration() {
-  if (currentAbort) { try { currentAbort.abort(); } catch(e) {} }
-}
-
-async function sendMessage() {
-  const input = document.getElementById('chat-input');
-  const msg = input.value.trim();
-  if (!msg || isSending) return;
-  input.value = '';
-  autoResize(input);
-
-  if (!activeChatId) newChat();
-  let chat = getActiveChat();
-  if (!chat) { newChat(); chat = getActiveChat(); }
-  if (!Array.isArray(chat.messages)) chat.messages = [];
-
-  // Geçmiş (yeni mesajdan önceki son 12)
-  const history = chat.messages
-    .filter(m => m.role === 'user' || m.role === 'assistant')
-    .slice(-12)
-    .map(m => ({ role: m.role, text: m.text }));
-
-  if (chat.messages.length === 0) {
-    chat.title = generateTitle(msg);
-    renderTree();
-  }
-
-  chat.messages.push({ role: 'user', text: msg });
-  chat.updated = Date.now();
-  renderChat();
-  persistSession(chat, true);
-
-  isSending = true;
-  setSendMode(true);
-  const typingDiv = document.createElement('div');
-  typingDiv.className = 'msg assistant';
-  typingDiv.id = 'typing-indicator';
-  typingDiv.innerHTML = '<div class="msg-bubble"><div class="typing-indicator"><span></span><span></span><span></span></div></div>';
-  document.getElementById('chat-area').appendChild(typingDiv);
-  document.getElementById('chat-area').scrollTop = document.getElementById('chat-area').scrollHeight;
-
-  currentAbort = new AbortController();
-  try {
-    const provider = document.getElementById('llm-provider') ? document.getElementById('llm-provider').value : currentProvider;
-    const model = (document.getElementById('llm-model') && document.getElementById('llm-model').value) || currentModel;
-    const apiKey = keyFor(provider);
-    const documentContext = buildDocumentContext();
-    // Belge zekâsı: aktif eklerin türü ve benzer kayıtları
-    const atts = chat.attachments || [];
-    const docType = atts.length ? (atts[atts.length - 1].docType || '') : '';
-    let related = [];
-    atts.forEach(a => { if (a.related && a.related.length) related = related.concat(a.related); });
-
-    const headers = {'Content-Type': 'application/json'};
-    headers['X-LLM-Provider'] = provider;
-    headers['X-LLM-Model'] = model;
-    if (apiKey && PROVIDERS[provider].needs_key) headers['X-API-Key'] = apiKey;
-
-    const res = await fetch('/api/chat', { method: 'POST', headers, signal: currentAbort.signal, body: JSON.stringify({
-      message: msg, provider, api_key: apiKey, model,
-      history, document_context: documentContext, doc_type: docType, related: related,
-      fallbacks: getFallbacks(), api_keys: apiKeys, timeout_override: gwTimeout || 0
-    }) });
-    const data = await res.json();
-
-    const ti = document.getElementById('typing-indicator');
-    if (ti) ti.remove();
-
-    if (data.error) {
-      chat.messages.push({ role: 'system', text: 'Hata: ' + data.error });
-      if (data.needs_key) toast('API anahtarı gerekli — Ayarlar', true);
-    } else {
-      const fellBack = (data.attempts || []).filter(a => a.status !== 'ok').length > 0;
-      chat.messages.push({
-        role: 'assistant', text: data.response, sources: data.sources || [],
-        skillsUsed: data.skills_used || [],
-        usedModel: (data.provider && data.model) ? (data.provider + ' · ' + data.model) : '',
-        fellBack: fellBack,
-        usage: data.usage || null, context: data.context || null
-      });
-      // Oturum token toplamı
-      if (data.usage && data.usage.total) {
-        chat.tokenTotal = (chat.tokenTotal || 0) + data.usage.total;
-        updateTokenChip();
-      }
-      // Otomatik bellek: son görüşmeden kalıcı bilgi öğren (arka planda)
-      if (autoMemory) learnFromConversation(msg, data.response, provider, model, apiKey);
-    }
-  } catch(e) {
-    const ti = document.getElementById('typing-indicator');
-    if (ti) ti.remove();
-    if (e && e.name === 'AbortError') {
-      chat.messages.push({ role: 'system', text: '⏹ Yanıt durduruldu.' });
-      toast('Yanıt durduruldu');
-    } else {
-      chat.messages.push({ role: 'system', text: 'Bağlantı hatası.' });
-    }
-  }
-
-  currentAbort = null;
-  isSending = false;
-  setSendMode(false);
-  chat.updated = Date.now();
-  renderChat();
-  persistSession(chat, true);
-}
-
-// ===== File Upload =====
-async function handleFileUpload(input) {
-  const file = input.files[0];
-  input.value = '';
-  if (!file) return;
-
-  if (!activeChatId) newChat();
-  let chat = getActiveChat();
-  if (!chat) { newChat(); chat = getActiveChat(); }
-  if (!Array.isArray(chat.messages)) chat.messages = [];
-  if (!Array.isArray(chat.attachments)) chat.attachments = [];
-
-  toast('📄 ' + file.name + ' yükleniyor…');
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('folderId', chat.folderId || '_root');
-
-  // serverOk ise workspace'e (kalıcı), değilse eski uçlara düş
-  const isPDF = file.name.toLowerCase().endsWith('.pdf');
-  const endpoint = serverOk ? '/api/workspace/file' : (isPDF ? '/api/upload/pdf' : '/api/upload/uyap');
-
-  try {
-    const data = await (await fetch(endpoint, { method: 'POST', body: formData })).json();
-    if (data.error) {
-      chat.messages.push({ role: 'system', text: 'Dosya hatası: ' + data.error });
-      toast('Dosya hatası: ' + data.error, true);
-    } else {
-      const text = (data.text || data.markdown || '');
-      const refs = data.references || [];
-      const u = data.understanding || {};
-      const related = data.related || [];
-      // Eki sohbete iliştir (bağlam + belge zekâsı)
-      chat.attachments.push({
-        name: file.name, text: text, refs: refs, refCount: refs.length,
-        docType: u.type || '', typeLabel: u.type_label || '', subject: u.subject || '',
-        parties: u.parties || [], related: related,
-        fileId: (data.file && data.file.id) || null
-      });
-      let info = '📄 Belge eklendi: ' + file.name;
-      if (u.type_label) info += '\\n📑 Tür: ' + u.type_label + (u.subject ? ' — ' + u.subject : '');
-      if (refs.length) info += '\\n🔖 Referanslar: ' + refs.map(r => r.value).join(', ');
-      if (related.length) info += '\\n🔎 Çalışma alanınızda benzer kayıt: ' + related.map(r => r.title + ' (' + r.folder + ')').join('; ');
-      info += '\\n\\nBu belge hakkında soru sorabilir, "⚖ Emsal" ile emsal kararları aratabilirsiniz.';
-      chat.messages.push({ role: 'system', text: info });
-      if (chat.title === 'Yeni Sohbet' || !chat.messages.filter(m=>m.role==='user').length) { chat.title = file.name.substring(0, 40); }
-      if (data.parse_error) toast('Not: ' + data.parse_error, true);
-      else toast('✓ ' + (u.type_label || 'Belge') + ' eklendi');
-    }
-    chat.updated = Date.now();
-    renderTree();
-    renderChat();
-    persistSession(chat, true);
-  } catch(e) {
-    chat.messages.push({ role: 'system', text: 'Dosya yükleme hatası.' });
-    toast('Dosya yükleme hatası', true);
-    renderChat();
-  }
-}
-
-// Drag & drop
-const mainArea = document.querySelector('.main');
-mainArea.addEventListener('dragover', e => { e.preventDefault(); document.getElementById('file-drop-overlay').classList.add('active'); });
-mainArea.addEventListener('dragleave', e => { e.preventDefault(); document.getElementById('file-drop-overlay').classList.remove('active'); });
-mainArea.addEventListener('drop', e => {
-  e.preventDefault();
-  document.getElementById('file-drop-overlay').classList.remove('active');
-  if (e.dataTransfer.files.length) {
-    document.getElementById('file-input').files = e.dataTransfer.files;
-    handleFileUpload(document.getElementById('file-input'));
-  }
-});
-
-// ===== Settings =====
-function openSettings() { document.getElementById('overlay').classList.add('open'); loadConfig(); }
-function closeSettings() { document.getElementById('overlay').classList.remove('open'); document.getElementById('test-status').textContent=''; }
-function switchSettingsTab(t){
-  document.getElementById('stab-conn').classList.toggle('active', t==='conn');
-  document.getElementById('stab-pref').classList.toggle('active', t==='pref');
-  document.getElementById('set-conn').style.display = t==='conn' ? '' : 'none';
-  document.getElementById('set-pref').style.display = t==='pref' ? '' : 'none';
-}
-
-function loadConfig() {
-  const prov = document.getElementById('llm-provider');
-  prov.value = currentProvider;
-  onProviderChange();
-  if (currentModel) document.getElementById('llm-model').value = currentModel;
-  updateModelChip();
-  // Tercihler
-  document.getElementById('ui-theme').value = currentTheme;
-  document.getElementById('token-budget').value = tokenBudget || '';
-  document.getElementById('gw-timeout').value = gwTimeout || '';
-  document.getElementById('auto-memory').value = autoMemory ? '1' : '0';
-  fetch('/api/workspace').then(r=>r.json()).then(d=>{
-    const el = document.getElementById('data-dir'); if (el) el.value = d.dataDir || '—';
-  }).catch(()=>{});
-}
-
-async function loadOllamaModels(selected) {
-  const modelSel = document.getElementById('llm-model');
-  try {
-    const data = await (await fetch('/api/ollama/models')).json();
-    if (data.ok && data.models && data.models.length) {
-      modelSel.innerHTML = data.models.map(m => '<option value="' + m + '">' + m + '</option>').join('');
-      modelSel.value = data.models.includes(selected) ? selected : data.models[0];
-      currentModel = modelSel.value;
-    }
-  } catch(e) {}
-}
-
-function onProviderChange() {
-  const prov = document.getElementById('llm-provider').value;
-  const modelSel = document.getElementById('llm-model');
-  const config = PROVIDERS[prov];
-  modelSel.innerHTML = config.models.map(m => '<option value="' + m + '">' + m + '</option>').join('');
-  let m = (prov === currentProvider && currentModel) ? currentModel : config.default_model;
-  if (!config.models.includes(m)) m = config.default_model;
-  modelSel.value = m;
-  // Yerel Ollama: canlı model listesini çek (cloud proxy modelleri dahil)
-  if (prov === 'ollama') loadOllamaModels(currentModel);
-  // Sağlayıcı başına anahtar
-  const keyInput = document.getElementById('llm-api-key');
-  const field = document.getElementById('api-key-field');
-  const hint = document.getElementById('api-key-hint');
-  keyInput.value = keyFor(prov);
-  if (config.needs_key) {
-    field.style.opacity = '1'; keyInput.disabled = false;
-    keyInput.placeholder = (prov === 'ollama_cloud') ? 'ollama.com API anahtarı' : 'sk-...';
-    hint.textContent = (prov === 'anthropic') ? '(sk-ant-…)' : '';
-  } else {
-    field.style.opacity = '.5'; keyInput.disabled = true; keyInput.value = '';
-    hint.textContent = '(gerekli değil — yerel)';
-  }
-  document.getElementById('test-status').textContent = '';
-}
-
-async function saveConfig() {
-  currentProvider = document.getElementById('llm-provider').value;
-  currentModel = document.getElementById('llm-model').value;
-  const key = document.getElementById('llm-api-key').value.trim();
-  if (PROVIDERS[currentProvider].needs_key) apiKeys[currentProvider] = key;
-  localStorage.setItem('llm-provider', currentProvider);
-  localStorage.setItem('llm-model', currentModel);
-  localStorage.setItem('llm-keys', JSON.stringify(apiKeys));
-  // Tercihler
-  currentTheme = document.getElementById('ui-theme').value;
-  tokenBudget = parseInt(document.getElementById('token-budget').value || '0', 10) || 0;
-  gwTimeout = parseInt(document.getElementById('gw-timeout').value || '0', 10) || 0;
-  autoMemory = document.getElementById('auto-memory').value === '1';
-  localStorage.setItem('ui-theme', currentTheme);
-  localStorage.setItem('token-budget', String(tokenBudget));
-  localStorage.setItem('gw-timeout', String(gwTimeout));
-  localStorage.setItem('auto-memory', autoMemory ? '1' : '0');
-  applyTheme(currentTheme);
-  budgetWarned = false;
-  // keyring (yerel mod) — best effort
-  try {
-    await fetch('/api/chat/configure', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({provider: currentProvider, api_key: key, model: currentModel})
-    });
-  } catch(e) {}
-  updateModelChip();
-  closeSettings();
-  toast('Ayarlar kaydedildi');
-}
-
-async function testConnection() {
-  const provider = document.getElementById('llm-provider').value;
-  const model = document.getElementById('llm-model').value;
-  const key = document.getElementById('llm-api-key').value.trim();
-  const status = document.getElementById('test-status');
-  status.className = 'test-status pending';
-  status.textContent = 'Test ediliyor…';
-  try {
-    const data = await (await fetch('/api/chat/test', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({provider, model, api_key: key})
-    })).json();
-    if (data.ok) { status.className = 'test-status ok'; status.textContent = '✓ ' + (data.message || 'Bağlantı başarılı'); }
-    else { status.className = 'test-status err'; status.textContent = '✗ ' + (data.error || 'Başarısız'); }
-  } catch(e) {
-    status.className = 'test-status err'; status.textContent = '✗ Sunucuya ulaşılamadı';
-  }
-}
-
-function updateModelChip() {
-  const chip = document.getElementById('model-chip');
-  const chipText = document.getElementById('model-chip-text');
-  const prov = PROVIDERS[currentProvider];
-  const hasKey = !prov.needs_key || keyFor(currentProvider);
-  chip.className = 'model-chip' + (hasKey ? '' : ' warn');
-  chipText.textContent = hasKey ? (prov.name + ' · ' + (currentModel || prov.default_model)) : 'API anahtarı gerekli';
-}
-
-// ===== System Panel (Gateway · Skills · Tools) =====
-let skillList = [];
-function openSystemPanel(){ document.getElementById('sys-overlay').classList.add('open'); switchPanelTab('gateway'); }
-function closeSystemPanel(){ document.getElementById('sys-overlay').classList.remove('open'); }
-function switchPanelTab(t){
-  ['gateway','skills','tools','computer'].forEach(x=>{
-    const tab = document.getElementById('tab-'+x);
-    const pane = document.getElementById('pane-'+x);
-    if (tab) tab.classList.toggle('active', x===t);
-    if (pane) pane.style.display = (x===t) ? '' : 'none';
-  });
-  if (t==='gateway') loadGatewayPane();
-  else if (t==='skills') loadSkillsPane();
-  else if (t==='tools') loadToolsPane();
-  else if (t==='computer') loadComputerPane();
-}
-
-async function loadGatewayPane(){
-  const pane = document.getElementById('pane-gateway');
-  // Sunucu tarafindaki config'i yukle
-  let gwCfg = {providers: {}, default_chain: []};
-  try {
-    gwCfg = await (await fetch('/api/gateway/config')).json();
-  } catch(e) {}
-
-  // Saglayici URL/timeout duzenleme bolumu
-  let provHtml = '<div class="tool-cat">Saglayici Ayarlari</div>';
-  const pkeys = Object.keys(PROVIDERS);
-  pkeys.forEach(k => {
-    const p = PROVIDERS[k];
-    const cfg = gwCfg.providers[k] || {};
-    const url = cfg.url || '';
-    const timeout = cfg.timeout || '';
-    const dm = cfg.default_model || p.default_model || '';
-    provHtml += '<div class="gw-prov-row" data-prov="'+k+'">' +
-      '<div class="gw-prov-name">' + escapeHtml(p.name) + '</div>' +
-      '<div class="gw-prov-fields">' +
-      '<input class="gw-input gw-url" data-prov="'+k+'" value="'+escapeHtml(url||'')+'" placeholder="'+escapeHtml(url?'':('Varsayilan URL'))+'" />' +
-      '<input class="gw-input gw-timeout" data-prov="'+k+'" type="number" min="10" max="600" value="'+escapeHtml(String(timeout))+'" placeholder="sn" style="width:60px" />' +
-      '</div></div>';
-  });
-  provHtml += '<button class="btn-ghost" data-act="save-gw-config" style="margin-top:8px">' + ic('check') + ' Kaydet</button>';
-
-  // Failover bolumu
-  let fbHtml = '<div class="field"><label>Yedek Model (Failover)</label>' +
-    '<div class="fallback-box"><select id="fb-provider" onchange="onFbProviderChange()"></select>' +
-    '<select id="fb-model"></select></div>' +
-    '<div style="display:flex;gap:8px;margin-top:8px">' +
-    '<button class="btn-ghost" onclick="addFallback()">+ Yedek Ekle</button>' +
-    '<button class="btn-ghost" onclick="clearFallbacks()">Temizle</button></div>' +
-    '<div id="fb-list" style="margin-top:10px"></div></div>';
-
-  pane.innerHTML = provHtml + fbHtml +
-    '<div class="tool-cat">Saglayici Metrikleri</div><div id="gw-metrics">Yukleniyor...</div>';
-  const fps = document.getElementById('fb-provider');
-  fps.innerHTML = pkeys.map(k=>'<option value="'+k+'">'+PROVIDERS[k].name+'</option>').join('');
-  onFbProviderChange();
-  renderFbList();
-  try {
-    const data = await (await fetch('/api/gateway/status')).json();
-    const p = data.providers || {};
-    const keys = Object.keys(p);
-    document.getElementById('gw-metrics').innerHTML = keys.length ? keys.map(k=>{
-      const m = p[k];
-      const tok = m.tokens ? (' · ' + fmtNum(m.tokens) + ' token') : '';
-      return '<div class="gw-row"><div><b>'+escapeHtml(m.name)+'</b><div class="gw-stat">'+m.calls+' cagri · '+m.avg_latency_ms+'ms ort.'+tok+'</div></div>'+
-        '<div class="gw-stat"><span class="gw-ok">✓'+m.ok+'</span> · <span class="gw-bad">✗'+(m.fail+m.empty)+'</span></div></div>';
-    }).join('') : '<div class="sk-desc">Henuz cagri yapilmadi.</div>';
-  } catch(e){ document.getElementById('gw-metrics').innerHTML = '<div class="sk-desc">Durum alinamadi.</div>'; }
-}
-async function saveGwConfig(){
-  const providers = {};
-  document.querySelectorAll('.gw-prov-row').forEach(row => {
-    const pid = row.getAttribute('data-prov');
-    const url = row.querySelector('.gw-url').value.trim();
-    const timeout = parseInt(row.querySelector('.gw-timeout').value, 10) || 0;
-    const entry = {};
-    if (url) entry.url = url;
-    if (timeout > 0) entry.timeout = timeout;
-    if (Object.keys(entry).length) providers[pid] = entry;
-  });
-  const payload = {providers: providers, default_chain: fallbacks.slice(0, 4)};
-  try {
-    const res = await fetch('/api/gateway/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-    const data = await res.json();
-    if (data.status === 'ok') {
-      // JS PROVIDERS'i guncelle
-      if (data.config && data.config.providers) {
-        Object.keys(data.config.providers).forEach(k => {
-          if (PROVIDERS[k]) {
-            const c = data.config.providers[k];
-            if (c.url) PROVIDERS[k]._url = c.url;
-            if (c.default_model) PROVIDERS[k].default_model = c.default_model;
-            if (c.models) PROVIDERS[k].models = c.models;
-          }
-        });
-      }
-      toast('Gateway ayarlari kaydedildi');
-    } else {
-      toast('Hata: ' + (data.error || 'Kaydedilemedi'), true);
-    }
-  } catch(e) { toast('Ayar kaydetme hatasi', true); }
-}
-
-function onFbProviderChange(){
-  const prov = document.getElementById('fb-provider').value;
-  document.getElementById('fb-model').innerHTML = PROVIDERS[prov].models.map(m=>'<option value="'+m+'">'+m+'</option>').join('');
-}
-function addFallback(){
-  const prov = document.getElementById('fb-provider').value;
-  const model = document.getElementById('fb-model').value;
-  fallbacks.push({provider:prov, model:model});
-  localStorage.setItem('llm-fallbacks', JSON.stringify(fallbacks));
-  renderFbList(); toast('Yedek model eklendi');
-}
-function removeFallback(i){ fallbacks.splice(i,1); localStorage.setItem('llm-fallbacks', JSON.stringify(fallbacks)); renderFbList(); }
-function clearFallbacks(){ fallbacks=[]; localStorage.setItem('llm-fallbacks','[]'); renderFbList(); }
-function renderFbList(){
-  const el = document.getElementById('fb-list'); if(!el) return;
-  if(!fallbacks.length){ el.innerHTML='<div class="sk-desc">Yedek model yok. Birincil model hata/boş yanıt verirse sırayla denenir.</div>'; return; }
-  el.innerHTML = fallbacks.map((f,i)=>{
-    const nm = (PROVIDERS[f.provider] ? PROVIDERS[f.provider].name : f.provider) + ' · ' + f.model;
-    return '<div class="tool-row"><span class="tdot"></span><code>'+escapeHtml(nm)+'</code><span style="margin-left:auto;cursor:pointer;color:var(--faint)" onclick="removeFallback('+i+')">×</span></div>';
-  }).join('');
-}
-
-async function loadSkillsPane(){
-  const pane = document.getElementById('pane-skills');
-  pane.innerHTML = 'Yukleniyor...';
-  try {
-    const data = await (await fetch('/api/skills')).json();
-    skillList = data.skills || [];
-    let html = '<button class="sk-add-btn" data-act="new-skill">' + ic('plus') + ' Yeni Skill Olustur</button>';
-    if (skillEditorOpen) {
-      html += '<div class="sk-editor"><textarea id="skill-editor-input" placeholder="---\\nname: Skill Adi\\ndescription: Aciklama\\ntriggers: [anahtar]\\ndoc_types: [belge]\\n---\\nYonerge govdesi"></textarea><div class="sk-editor-actions"><button class="btn-primary" data-act="save-new-skill">Kaydet</button></div></div>';
-    }
-    html += skillList.map((s,i)=>
-      '<div class="sk-row"><div class="sk-main"><div class="sk-name">'+escapeHtml(s.name)+'</div>'+
-      '<div class="sk-desc">'+escapeHtml(s.description)+'</div></div>'+
-      '<label class="sw"><input type="checkbox" '+(s.enabled?'checked':'')+' onchange="toggleSkill('+i+', this.checked)"><span class="track"><span class="knob"></span></span></label></div>'
-    ).join('') || '<div class="sk-desc">Skill bulunamadi.</div>';
-    pane.innerHTML = html;
-  } catch(e){ pane.innerHTML='<div class="sk-desc">Skills alinamadi.</div>'; }
-}
-async function toggleSkill(i, enabled){
-  const s = skillList[i]; if(!s) return;
-  s.enabled = enabled;
-  try { await fetch('/api/skills/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:s.name, enabled})}); toast(enabled?('⚡ '+s.name+' açildi'):(s.name+' kapatildi')); } catch(e){}
-}
-
-// ===== Skill Creation from Chat =====
-let skillEditorOpen = false;
-
-function detectSkillBlocks() {
-  document.querySelectorAll('.code-block').forEach(function(block) {
-    var lang = block.querySelector('.code-lang');
-    if (lang && lang.textContent.toUpperCase() === 'SKILL.MD') {
-      if (block.querySelector('.skill-save-btn')) return;
-      var btn = document.createElement('button');
-      btn.className = 'code-copy skill-save-btn';
-      btn.innerHTML = ic('zap') + ' Skill olarak kaydet';
-      btn.setAttribute('data-copy-act', 'save-skill');
-      block.querySelector('.code-header').appendChild(btn);
-    }
-  });
-}
-
-async function saveSkillFromBlock(btn) {
-  var block = btn.closest('.code-block');
-  var code = block.querySelector('pre');
-  if (!code) return;
-  var content = code.textContent;
-  var nameMatch = content.match(/^name:\\s*(.+)$/m);
-  var skillName = nameMatch ? nameMatch[1].trim() : '';
-  if (!skillName) { toast('Skill adi bulunamadi', true); return; }
-  showSkillConfirm(skillName, content);
-}
-
-function showSkillConfirm(name, content) {
-  document.getElementById('skill-confirm-name').textContent = name;
-  document.getElementById('skill-confirm-content').value = content;
-  document.getElementById('skill-overlay').classList.add('open');
-}
-
-function closeSkillConfirm() {
-  document.getElementById('skill-overlay').classList.remove('open');
-}
-
-async function confirmSaveSkill() {
-  var content = document.getElementById('skill-confirm-content').value;
-  var nameMatch = content.match(/^name:\\s*(.+)$/m);
-  var skillName = nameMatch ? nameMatch[1].trim() : '';
-  if (!skillName || !content) { toast('Skill adi veya icerik eksik', true); return; }
-  try {
-    var res = await fetch('/api/skills/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:skillName, content:content})});
-    var data = await res.json();
-    if (data.status === 'ok') {
-      toast('⚡ Yeni skill kaydedildi: ' + skillName);
-      closeSkillConfirm();
-    } else {
-      toast('Hata: ' + (data.error || 'Kaydedilemedi'), true);
-    }
-  } catch(e) { toast('Kaydetme hatasi', true); }
-}
-
-async function saveNewSkillFromEditor() {
-  var content = document.getElementById('skill-editor-input').value;
-  var nameMatch = content.match(/^name:\\s*(.+)$/m);
-  var skillName = nameMatch ? nameMatch[1].trim() : '';
-  if (!skillName || !content.trim()) { toast('Skill adi veya icerik eksik', true); return; }
-  try {
-    var res = await fetch('/api/skills/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:skillName, content:content})});
-    var data = await res.json();
-    if (data.status === 'ok') {
-      toast('⚡ Yeni skill kaydedildi: ' + skillName);
-      document.getElementById('skill-editor-input').value = '';
-      skillEditorOpen = false;
-      loadSkillsPane();
-    } else {
-      toast('Hata: ' + (data.error || 'Kaydedilemedi'), true);
-    }
-  } catch(e) { toast('Kaydetme hatasi', true); }
-}
-
-async function loadToolsPane(){
-  const pane = document.getElementById('pane-tools');
-  pane.innerHTML = 'Yükleniyor…';
-  try {
-    const data = await (await fetch('/api/tools')).json();
-    const byCat = {};
-    (data.tools||[]).forEach(t=>{ (byCat[t.category]=byCat[t.category]||[]).push(t); });
-    let html = '<div class="sk-desc">'+data.available+' / '+data.total+' araç aktif</div>';
-    Object.keys(byCat).forEach(cat=>{
-      html += '<div class="tool-cat">'+escapeHtml(cat)+'</div>';
-      html += byCat[cat].map(t=>'<div class="tool-row"><span class="tdot'+(t.available?'':' off')+'"></span><code>'+escapeHtml(t.name)+'</code><span class="tdesc">'+escapeHtml(t.description)+'</span></div>').join('');
-    });
-    pane.innerHTML = html;
-  } catch(e){ pane.innerHTML='<div class="sk-desc">Araçlar alınamadı.</div>'; }
-}
-
-// ===== Modules =====
-async function loadComputerPane(){
-  const pane = document.getElementById('pane-computer');
-  pane.innerHTML = 'Yukleniyor...';
-  try {
-    const data = await (await fetch('/api/computer/permissions')).json();
-    if (!data.available) { pane.innerHTML = '<div class="sk-desc">Bilgisayar araclari kullanilamiyor.</div>'; return; }
-    const perms = data.permissions || {};
-    const riskColors = {low: 'var(--green)', medium: 'var(--accent)', high: '#ff4444'};
-    const riskLabels = {low: 'Dusuk', medium: 'Orta', high: 'Yuksek'};
-    let html = '<div class="tool-cat">Bilgisayar Araclari</div>';
-    html += '<div class="sk-desc" style="margin-bottom:12px">Bu aracllar bilgisayariniza erisim saglar. Guvenlik icin varsayilan olarak kapalidir. Ihtiyaciniz olanlari acik hale getirin.</div>';
-    const keys = Object.keys(perms);
-    keys.forEach(k => {
-      const p = perms[k];
-      const rc = riskColors[p.risk] || 'var(--faint)';
-      const rl = riskLabels[p.risk] || p.risk;
-      html += '<div class="comp-row"><div class="comp-main"><div class="comp-name">' + escapeHtml(p.name) +
-        ' <span class="comp-risk" style="color:' + rc + '">' + rl + '</span></div>' +
-        '<div class="comp-desc">' + escapeHtml(p.desc) + '</div></div>' +
-        '<label class="sw"><input type="checkbox" ' + (p.allowed ? 'checked' : '') +
-        ' data-comp-tool="'+k+'" onchange="toggleComputerToolByAttr(this)"><span class="track"><span class="knob"></span></span></label></div>';
-    });
-    html += '<div class="tool-cat" style="margin-top:16px">Guvenlik Uyarisi</div>';
-    html += '<div class="sk-desc">Komut Calistirma araci <b>yuksek risk</b> tasir. Tehlikeli komutlar otomatik engellenir ancak tum riskleri ortadan kaldirmaz. Dikkatli kullanin.</div>';
-    pane.innerHTML = html;
-  } catch(e) {
-    pane.innerHTML = '<div class="sk-desc">Bilgisayar araclari yuklenemedi.</div>';
-  }
-}
-function toggleComputerToolByAttr(el){ var name=el.getAttribute("data-comp-tool"); toggleComputerTool(name, el.checked); }
-async function toggleComputerTool(name, enabled){
-  try {
-    const perms = {};
-    perms[name] = enabled;
-    const res = await fetch('/api/computer/permissions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({permissions: perms})});
-    const data = await res.json();
-    if (data.status === 'ok') toast(enabled ? (name + ' acildi') : (name + ' kapatildi'));
-    else toast('Hata: ' + (data.error || 'Guncellenemedi'), true);
-  } catch(e) { toast('Izin guncelleme hatasi', true); }
-}
-
-async function loadModules() {
-  try {
-    const res = await fetch('/health');
-    const data = await res.json();
-    const moduleList = document.getElementById('module-list');
-    if (!moduleList || !data.modules) return;
-    const groups = {
-      'Hukuk': ['resmi_gazete','mevzuat','bedesten','anayasa','kik','rekabet','sayistay','kvkk','sigorta_tahkim','uyusmazlik','emsal','ihale'],
-      'Mali': ['gib','ivd','sgk','iskur','turmob','ismmmo'],
-      'İhale': ['ihale'],
-      'Borsa': ['borsa'],
-    };
-    let html = '';
-    for (const [label, keys] of Object.entries(groups)) {
-      const active = keys.filter(k => data.modules[k]).length;
-      html += '<div class="mod"><div class="mod-left"><span class="sdot' + (active > 0 ? '' : ' off') + '"></span> ' + label + '</div><span class="mod-count">' + active + '/' + keys.length + '</span></div>';
-    }
-    moduleList.innerHTML = html;
-  } catch(e) {}
-}
-loadModules();
-
-// ===== Memory (Bellek) =====
-let memories = [];
-
-async function loadMemories() {
-  try {
-    const res = await fetch('/api/memory');
-    const data = await res.json();
-    memories = data.memories || [];
-    renderMemories();
-  } catch(e) { memories = []; renderMemories(); }
-}
-
-// Sohbetten otomatik bellek öğrenme (arka planda, yanıtı yavaşlatmaz)
-function learnFromConversation(userMsg, assistantMsg, provider, model, apiKey) {
-  if (!userMsg || !assistantMsg) return;
-  const headers = {'Content-Type': 'application/json'};
-  headers['X-LLM-Provider'] = provider; headers['X-LLM-Model'] = model;
-  if (apiKey && PROVIDERS[provider] && PROVIDERS[provider].needs_key) headers['X-API-Key'] = apiKey;
-  fetch('/api/memory/learn', { method: 'POST', headers, body: JSON.stringify({
-    provider, model, api_key: apiKey, api_keys: apiKeys,
-    history: [{role:'user', text:userMsg}, {role:'assistant', text:assistantMsg}]
-  }) })
-  .then(r => r.json())
-  .then(d => {
-    const addN = (d.added||[]).length, forgN = (d.forgotten||[]).length;
-    if (addN || forgN) loadMemories();
-    if (addN) toast('🧠 Belleğe eklendi: ' + d.added.map(a=>a.content).join(' · ').slice(0,70));
-    if (forgN) toast('🧠 ' + forgN + ' bilgi unutuldu');
-  })
-  .catch(()=>{});
-}
-
-async function clearMemories() {
-  if (!confirm('Tüm bellek kayıtları silinsin mi?')) return;
-  try { await fetch('/api/memory/clear', {method:'POST'}); loadMemories(); toast('Bellek temizlendi'); } catch(e){}
-}
-
-function renderMemories() {
-  const list = document.getElementById('memory-list');
-  const count = document.getElementById('mem-count');
-  if (count) count.textContent = memories.length ? memories.length : '';
-  if (!memories.length) {
-    list.innerHTML = '<div style="text-align:center;color:var(--faint);padding:12px;font-size:11px">Henuz bellek yok</div>';
-    return;
-  }
-  const catLabels = {preference:'tercih', fact:'olgu', instruction:'talimat'};
-  list.innerHTML = memories.map(function(m) {
-    const auto = (m.source === 'auto') ? '<span class="mem-auto" title="Sohbetten otomatik öğrenildi">oto</span>' : '';
-    return '<div class="mem-item" data-mem-id="' + m.id + '">' +
-      '<span class="mem-badge ' + m.category + '">' + (catLabels[m.category]||m.category) + '</span>' + auto +
-      '<span class="mem-text">' + escapeHtml(m.content) + '</span>' +
-      '<span class="mem-del" data-act="del-memory" data-mem-id="' + m.id + '">' + ic('x') + '</span></div>';
-  }).join('');
-}
-
-async function addMemory() {
-  const cat = document.getElementById('mem-cat').value;
-  const content = document.getElementById('mem-input').value.trim();
-  if (!content) return;
-  await fetch('/api/memory', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({category:cat, content:content})});
-  document.getElementById('mem-input').value = '';
-  loadMemories();
-}
-
-async function deleteMemory(id) {
-  await fetch('/api/memory/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:id})});
-  loadMemories();
-}
-
-document.getElementById('mem-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') { e.preventDefault(); addMemory(); }
-});
-loadMemories();
-
-// ===== Init =====
-async function init() {
-  applyTheme(currentTheme);
-  applySidebar();
-  loadConfig();
-  setupTree();
-  await bootstrapWorkspace();   // sunucudan klasör + oturumları çek
-  renderTree();
-  // Kaldığı yerden devam: aktif oturum yoksa en son güncelleneni aç
-  let target = activeChatId && chats.find(c => c.id === activeChatId) ? activeChatId : (chats[0] && chats[0].id);
-  if (target) { await selectChat(target); }
-  else { renderChat(); }
-}
-init();
-</script>
-</body>
-</html>"""
+def _base_path() -> pathlib.Path:
+    """Frontend dosyalari icin temel yol. EXE'de _MEIPASS, gelistirmede dosya dizini."""
+    if getattr(sys, 'frozen', False):
+        return pathlib.Path(sys._MEIPASS)
+    return pathlib.Path(__file__).parent
 
 
 async def homepage(request):
     try:
-        return HTMLResponse(DASHBOARD_HTML)
+        return HTMLResponse((_base_path() / "templates" / "index.html").read_text(encoding="utf-8"))
     except Exception as e:
         import traceback
         return HTMLResponse(f"<pre>Error rendering dashboard:\n{traceback.format_exc()}</pre>", status_code=500)
@@ -2606,6 +1087,9 @@ async def health_endpoint(request):
             "skills_count": len(skills_engine.load_skills()) if SKILLS_AVAILABLE else 0,
             "workspace": WORKSPACE_AVAILABLE,
             "memory": MEMORY_AVAILABLE,
+            "deadlines": DEADLINES_AVAILABLE,
+            "dava": DAVA_AVAILABLE,
+            "backup": BACKUP_AVAILABLE,
             "computer_tools": COMPUTER_TOOLS_AVAILABLE,
             "date": date.today().isoformat(),
         })
@@ -2641,6 +1125,7 @@ if MODULES_AVAILABLE.get("uyap"):
             return f"UYAP parse hatasi: {str(e)}"
 
     @app.tool(description="UYAP EYP/UDF belgesindeki taraflari listeler.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def get_uyap_parties(file_path: str = "", base64_data: str = "") -> str:
         """UYAP EYP/UDF belgesindeki taraflari (sanik, musteki, mudafii vb.) listeler.
 
@@ -2681,6 +1166,7 @@ if MODULES_AVAILABLE.get("uyap"):
             return f"UYAP parse hatasi: {str(e)}"
 
     @app.tool(description="UYAP EYP/UDF belgesindeki hukuki referans numaralarini tespit eder.", annotations={"readOnlyHint": True, "openWorldHint": True, "idempotentHint": True})
+    @cached_tool()
     async def get_uyap_references(file_path: str = "", base64_data: str = "") -> str:
         """UYAP EYP/UDF belgesindeki hukuki referans numaralarini (esas no, karar no, RG sayisi vb.) tespit eder.
 
@@ -2895,11 +1381,26 @@ TOOL_ROUTING = {
     "emsal karar": "search_emsal", "emsal": "search_emsal",
     "mahkeme": "search_bedesten_unified", "hukuk": "search_bedesten_unified",
     "dava": "search_bedesten_unified", "ictihat": "search_bedesten_unified",
+    # Hukuk — belge tam metni
+    "karar metni": "get_bedesten_document", "karar tam metin": "get_bedesten_document",
+    "emsal metin": "get_emsal_document", "emsal karar metni": "get_emsal_document",
+    "anayasa metin": "get_anayasa_document", "anayasa karar metni": "get_anayasa_document",
+    "kik metin": "get_kik_document", "kik karar metni": "get_kik_document",
+    "rekabet metin": "get_rekabet_document", "rekabet karar metni": "get_rekabet_document",
     # Mali
     "asgari ücret": "get_asgari_ucret", "asgari": "get_asgari_ucret",
     "prim": "get_prim_matrahi", "sgk prim": "get_prim_matrahi",
-    "resmi gazete": "search_resmi_gazete", "mevzuat": "search_resmi_gazete",
+    "resmi gazete": "search_resmi_gazete",
     "genelge": "search_resmi_gazete",
+    # Mevzuat — arama
+    "mevzuat": "search_mevzuat_bedesten",
+    "kanun": "search_mevzuat_bedesten",
+    "yönetmelik": "search_mevzuat_bedesten",
+    "khk": "search_mevzuat_bedesten",
+    # Mevzuat — tam metin
+    "kanun metni": "get_mevzuat_document",
+    "madde": "get_mevzuat_article",
+    "içindekiler": "get_mevzuat_article_tree",
     "sirküler": "search_gib_sirkuler", "vergi": "search_gib_sirkuler",
     "gib": "search_gib_sirkuler", "kdv": "search_gib_sirkuler",
     "e-fatura": "check_efatura_taxpayer", "mükellef": "check_efatura_taxpayer",
@@ -2910,7 +1411,7 @@ TOOL_ROUTING = {
     "borsa": "get_bist_stock", "hisse": "get_bist_stock", "döviz": "get_fx_rates",
     "kripto": "get_crypto", "bitcoin": "get_crypto",
     # Genel (en düşük öncelik)
-    "kanun": "search_resmi_gazete", "karar": "search_bedesten_unified",
+    "karar": "search_bedesten_unified",
 }
 
 
@@ -3395,7 +1896,7 @@ def _extract_text_from_pdf(content: bytes) -> tuple[str, dict]:
                 ocr_text = _extract_text_with_ocr(content)
                 if ocr_text and len(ocr_text) > len(full_text):
                     full_text = ocr_text
-                    metadata["method"] = "tesseract_ocr"
+                    metadata["method"] = "rapidocr_ocr"
                     metadata["ocr_used"] = True
             except Exception as e:
                 logger.warning(f"OCR fallback basarisiz: {e}")
@@ -3406,7 +1907,7 @@ def _extract_text_from_pdf(content: bytes) -> tuple[str, dict]:
         logger.warning("pymupdf yuklu degil, OCR deneniyor...")
         try:
             ocr_text = _extract_text_with_ocr(content)
-            metadata["method"] = "tesseract_ocr"
+            metadata["method"] = "rapidocr_ocr"
             metadata["ocr_used"] = True
             return ocr_text, metadata
         except Exception as e:
@@ -3417,28 +1918,246 @@ def _extract_text_from_pdf(content: bytes) -> tuple[str, dict]:
         return "", metadata
 
 
+def _fix_turkish_ocr_errors(text: str) -> str:
+    """RapidOCR latin modelinin bilinen Türkçe karakter hatalarını düzelt.
+
+    Yalnızca yüksek güvenli düzeltmeler uygulanır. Bağlam bağımlı düzeltmeler
+    (örn. 'g' → 'ğ') yanlış pozitifler oluşturabileceğinden LLM'e bırakılır.
+    """
+    if not text:
+        return text
+    # Satır sonu unicode normalizasyon hataları
+    text = text.replace("", "·")  # bullet yerine yanlış kodlanmış
+    # Tek tırnak hataları
+    text = text.replace("‘", "'").replace("’", "'")
+    # Çift tırnak hataları
+    text = text.replace("“", '"').replace("”", '"')
+    return text
+
+
 def _extract_text_with_ocr(content: bytes) -> str:
-    """Tesseract OCR ile PDF'den metin çıkar (fallback)."""
+    """PDF'den OCR ile metin çıkar — pymupdf + RapidOCR (pip-only, Tesseract gerektirmez).
+
+    İki katmanlı strateji:
+    1. RapidOCR (ONNX tabanlı, hızlı, pip-only) — birincil
+    2. pymupdf yerleşik OCR (tessdata gerektirir) — ikincil fallback
+    """
+    import pymupdf
+
+    # --- Birincil: RapidOCR (ONNX tabanlı, hızlı) ---
     try:
-        from pdf2image import convert_from_bytes
-        import pytesseract
+        from rapidocr_onnxruntime import RapidOCR
+        import numpy as np
 
-        images = convert_from_bytes(content, dpi=200)
+        reader = RapidOCR()
+        doc = pymupdf.open(stream=content, filetype="pdf")
         text_parts = []
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            pix = page.get_pixmap(dpi=200)
+            img_bytes = pix.tobytes("png")
+            img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+            img_array = img_array.reshape(pix.height, pix.width, pix.n)
+            result, _ = reader(img_array)
+            if result:
+                page_text = "\n".join([line[1] for line in result])
+                page_text = _fix_turkish_ocr_errors(page_text)
+                text_parts.append(f"--- Sayfa {page_num + 1} (OCR) ---\n{page_text}")
+        doc.close()
+        if text_parts:
+            return "\n\n".join(text_parts)
+    except ImportError:
+        logger.warning("rapidocr-onnxruntime yuklu degil, pymupdf OCR deneniyor...")
+    except Exception as e:
+        logger.warning(f"RapidOCR basarisiz: {e}, pymupdf OCR deneniyor...")
 
-        for i, img in enumerate(images):
-            # Turkce dil destegi ile OCR
-            try:
-                text = pytesseract.image_to_string(img, lang="tur+eng")
-            except Exception:
-                # Turkiye dili yoksa sadece Ingilizce dene
-                text = pytesseract.image_to_string(img, lang="eng")
-            text_parts.append(f"--- Sayfa {i + 1} (OCR) ---\n{text}")
+    # --- İkincil: pymupdf yerleşik OCR (tessdata dosyaları gerektirir) ---
+    try:
+        doc = pymupdf.open(stream=content, filetype="pdf")
+        text_parts = []
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            tp = page.get_textpage_ocr(language="tur+eng")
+            text = page.get_text(textpage=tp)
+            if text.strip():
+                text_parts.append(f"--- Sayfa {page_num + 1} (OCR) ---\n{text}")
+        doc.close()
+        if text_parts:
+            return "\n\n".join(text_parts)
+    except Exception as e:
+        logger.warning(f"pymupdf OCR da basarisiz: {e}")
 
-        return "\n\n".join(text_parts)
+    raise ImportError("OCR kutuphaneleri kullanilamiyor (rapidocr-onnxruntime veya tessdata)")
 
-    except ImportError as e:
-        raise ImportError(f"OCR kutuphaneleri yuklu degil: {e}")
+
+async def export_docx_endpoint(request):
+    """Yapılandırılmış belge taslağını DOCX olarak dışa aktarır.
+
+    Body: {
+        "title": "...",
+        "sections": [{"heading": "...", "body": "..."}, ...],
+        "metadata": {"parties": [...], "subject": "...", "legal_refs": [...], "date": "..."},
+        "doc_type": "dava_dilekcesi"  // optional
+    }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Geçersiz JSON gövdesi."}, status_code=400)
+
+    title = (body.get("title") or "Belge").strip()
+    sections = body.get("sections") or []
+    metadata = body.get("metadata") or {}
+    doc_type = body.get("doc_type") or ""
+
+    if not sections:
+        return JSONResponse({"error": "sections alanı boş olamaz."}, status_code=400)
+
+    try:
+        from docx import Document
+        from docx.shared import Pt, Cm, RGBColor
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.enum.table import WD_TABLE_ALIGNMENT
+    except ImportError:
+        return JSONResponse({"error": "python-docx yüklü değil."}, status_code=500)
+
+    doc = Document()
+
+    # Sayfa kenar boşlukları (Türk hukuk formatı)
+    for section in doc.sections:
+        section.top_margin = Cm(2.5)
+        section.bottom_margin = Cm(2.5)
+        section.left_margin = Cm(2.5)
+        section.right_margin = Cm(2.5)
+
+    # Stil ayarları
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Times New Roman'
+    font.size = Pt(12)
+
+    # Başlık
+    heading_para = doc.add_paragraph()
+    heading_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = heading_para.add_run(title.upper())
+    run.bold = True
+    run.font.size = Pt(14)
+    run.font.name = 'Times New Roman'
+
+    # Meta veriler
+    if metadata:
+        # Taraf tablosu
+        parties = metadata.get("parties") or []
+        if parties:
+            doc.add_paragraph()  # Boş satır
+            table = doc.add_table(rows=1, cols=2)
+            table.style = 'Table Grid'
+            table.alignment = WD_TABLE_ALIGNMENT.CENTER
+            hdr = table.rows[0].cells
+            hdr[0].text = "Sıfat"
+            hdr[1].text = "Ad Soyad / Unvan"
+            for cell in hdr:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.bold = True
+                        run.font.name = 'Times New Roman'
+                        run.font.size = Pt(11)
+            for party in parties:
+                row = table.add_row()
+                row.cells[0].text = party.get("role", "")
+                row.cells[1].text = party.get("name", "")
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.font.name = 'Times New Roman'
+                            run.font.size = Pt(11)
+
+        # Konu
+        subject = metadata.get("subject") or ""
+        if subject:
+            doc.add_paragraph()
+            p = doc.add_paragraph()
+            run_label = p.add_run("Konu: ")
+            run_label.bold = True
+            run_label.font.name = 'Times New Roman'
+            run_label.font.size = Pt(12)
+            run_text = p.add_run(subject)
+            run_text.font.name = 'Times New Roman'
+            run_text.font.size = Pt(12)
+
+        # Yasal referanslar
+        legal_refs = metadata.get("legal_refs") or []
+        if legal_refs:
+            p = doc.add_paragraph()
+            run_label = p.add_run("Yasal Dayanaklar: ")
+            run_label.bold = True
+            run_label.font.name = 'Times New Roman'
+            run_label.font.size = Pt(11)
+            run_text = p.add_run(", ".join(legal_refs))
+            run_text.font.name = 'Times New Roman'
+            run_text.font.size = Pt(11)
+
+        # Tarih
+        date_str = metadata.get("date") or ""
+        if date_str:
+            doc.add_paragraph()
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            run = p.add_run(f"Tarih: {date_str}")
+            run.font.name = 'Times New Roman'
+            run.font.size = Pt(11)
+
+    # Bölümler
+    doc.add_paragraph()  # Boş satır
+    for section in sections:
+        heading = section.get("heading") or ""
+        body = section.get("body") or ""
+
+        if heading:
+            h = doc.add_paragraph()
+            run = h.add_run(heading)
+            run.bold = True
+            run.font.name = 'Times New Roman'
+            run.font.size = Pt(12)
+
+        if body:
+            # Gövde metni — paragraflara böl
+            for para_text in body.split("\n"):
+                para_text = para_text.strip()
+                if para_text:
+                    p = doc.add_paragraph(para_text)
+                    for run in p.runs:
+                        run.font.name = 'Times New Roman'
+                        run.font.size = Pt(12)
+
+        doc.add_paragraph()  # Bölümler arası boşluk
+
+    # İmza alanı (dilekçe ve ihtarname için)
+    if doc_type in ("dava_dilekcesi", "temyiz_dilekcesi", "ihtarname"):
+        doc.add_paragraph()
+        doc.add_paragraph()
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        run = p.add_run("İmza")
+        run.font.name = 'Times New Roman'
+        run.font.size = Pt(12)
+
+    # DOCX'i belleğe yaz
+    import io
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+
+    # Dosya adı
+    import re
+    safe_title = re.sub(r'[^\w\s-]', '', title).strip().replace(' ', '_')[:50]
+    filename = f"{safe_title}.docx"
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 async def upload_pdf_endpoint(request):
@@ -3867,6 +2586,365 @@ async def memory_clear_endpoint(request):
     return JSONResponse({"status": "ok", "deleted": n})
 
 
+# ============================================================
+# SÜRE TAKİP ENDPOINT'LERİ
+# ============================================================
+async def deadline_list_endpoint(request):
+    """Tüm süreleri listele. Opsiyonel ?status=active filtresi."""
+    if not DEADLINES_AVAILABLE:
+        return JSONResponse({"deadlines": []})
+    status = request.query_params.get("status")
+    return JSONResponse({"deadlines": deadlines_mod.list_deadlines(status if status else None)})
+
+
+async def deadline_add_endpoint(request):
+    """Yeni süre ekle. Body: {"category": "...", "title": "...", "start_date": "YYYY-MM-DD", "days_allowed"?: int, "description"?: "..."}"""
+    if not DEADLINES_AVAILABLE:
+        return JSONResponse({"error": "deadlines module not available"}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    category = body.get("category", "diger")
+    title = body.get("title", "")
+    start_date = body.get("start_date", "")
+    days_allowed = body.get("days_allowed")  # None means use category default
+    description = body.get("description", "")
+    try:
+        dl = deadlines_mod.add_deadline(category, title, start_date, days_allowed, description)
+        return JSONResponse(dl)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+async def deadline_update_endpoint(request):
+    """Süreyi güncelle. Body: {"id": "dl_xxx", ...fields}"""
+    if not DEADLINES_AVAILABLE:
+        return JSONResponse({"error": "deadlines module not available"}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    dl_id = body.get("id", "")
+    if not dl_id:
+        return JSONResponse({"error": "id required"}, status_code=400)
+    kwargs = {k: v for k, v in body.items() if k != "id" and v is not None}
+    try:
+        result = deadlines_mod.update_deadline(dl_id, **kwargs)
+        if result is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse(result)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+async def deadline_delete_endpoint(request):
+    """Süreyi sil. Body: {"id": "dl_xxx"}"""
+    if not DEADLINES_AVAILABLE:
+        return JSONResponse({"error": "deadlines module not available"}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    dl_id = body.get("id", "")
+    ok = deadlines_mod.delete_deadline(dl_id)
+    return JSONResponse({"status": "ok" if ok else "notfound"})
+
+
+async def deadline_complete_endpoint(request):
+    """Süreyi tamamlandı olarak işaretle. Body: {"id": "dl_xxx"}"""
+    if not DEADLINES_AVAILABLE:
+        return JSONResponse({"error": "deadlines module not available"}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    dl_id = body.get("id", "")
+    result = deadlines_mod.mark_completed(dl_id)
+    if result is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse(result)
+
+
+async def deadline_upcoming_endpoint(request):
+    """Yaklaşan süreleri getir. Opsiyonel ?days=30."""
+    if not DEADLINES_AVAILABLE:
+        return JSONResponse({"deadlines": []})
+    days = int(request.query_params.get("days", "30"))
+    return JSONResponse({"deadlines": deadlines_mod.get_upcoming(days)})
+
+
+async def deadline_overdue_endpoint(request):
+    """Gecikmiş süreleri getir."""
+    if not DEADLINES_AVAILABLE:
+        return JSONResponse({"deadlines": []})
+    return JSONResponse({"deadlines": deadlines_mod.get_overdue()})
+
+
+# ============================================================
+# DAVA KARTI ENDPOINT'LERİ
+# ============================================================
+async def dava_list_endpoint(request):
+    """Dava kartlarını listele."""
+    if not DAVA_AVAILABLE:
+        return JSONResponse({"kartlar": []})
+    durum = request.query_params.get("durum", "")
+    dava_turu = request.query_params.get("dava_turu", "")
+    return JSONResponse({"kartlar": dava_mod.list_kartlar(durum=durum if durum else None, dava_turu=dava_turu if dava_turu else None)})
+
+
+async def dava_add_endpoint(request):
+    """Yeni dava kartı ekle."""
+    if not DAVA_AVAILABLE:
+        return JSONResponse({"error": "Dava modülü kullanılamıyor"}, status_code=503)
+    body = await request.json()
+    try:
+        k = dava_mod.add_kart(
+            esas_no=body.get("esas_no", ""),
+            dava_turu=body.get("dava_turu", "diger"),
+            taraf_muvekkil=body.get("taraf_muvekkil", ""),
+            taraf_karsi=body.get("taraf_karsi", ""),
+            daire=body.get("daire", ""),
+            konu=body.get("konu", ""),
+            acilis_tarihi=body.get("acilis_tarihi", ""),
+            notlar=body.get("notlar", ""),
+        )
+        return JSONResponse(k)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+async def dava_update_endpoint(request):
+    """Dava kartını güncelle."""
+    if not DAVA_AVAILABLE:
+        return JSONResponse({"error": "Dava modülü kullanılamıyor"}, status_code=503)
+    body = await request.json()
+    kart_id = body.get("id", "")
+    if not kart_id:
+        return JSONResponse({"error": "id zorunlu"}, status_code=400)
+    kwargs = {k: v for k, v in body.items() if k != "id" and v is not None}
+    k = dava_mod.update_kart(kart_id, **kwargs)
+    if k:
+        return JSONResponse(k)
+    return JSONResponse({"error": "Kart bulunamadı"}, status_code=404)
+
+
+async def dava_delete_endpoint(request):
+    """Dava kartını sil."""
+    if not DAVA_AVAILABLE:
+        return JSONResponse({"error": "Dava modülü kullanılamıyor"}, status_code=503)
+    body = await request.json()
+    kart_id = body.get("id", "")
+    if dava_mod.delete_kart(kart_id):
+        return JSONResponse({"status": "ok"})
+    return JSONResponse({"error": "Kart bulunamadı"}, status_code=404)
+
+
+async def dava_search_endpoint(request):
+    """Dava kartlarında arama."""
+    if not DAVA_AVAILABLE:
+        return JSONResponse({"kartlar": []})
+    query = request.query_params.get("q", "")
+    return JSONResponse({"kartlar": dava_mod.search_kartlar(query)})
+
+
+async def dava_link_deadline_endpoint(request):
+    """Dava kartına süre bağla."""
+    if not DAVA_AVAILABLE:
+        return JSONResponse({"error": "Dava modülü kullanılamıyor"}, status_code=503)
+    body = await request.json()
+    k = dava_mod.link_deadline(body.get("dava_id", ""), body.get("deadline_id", ""))
+    if k:
+        return JSONResponse(k)
+    return JSONResponse({"error": "Kart veya süre bulunamadı"}, status_code=404)
+
+
+async def dava_unlink_deadline_endpoint(request):
+    """Dava kartından süre bağını kaldır."""
+    if not DAVA_AVAILABLE:
+        return JSONResponse({"error": "Dava modülü kullanılamıyor"}, status_code=503)
+    body = await request.json()
+    k = dava_mod.unlink_deadline(body.get("dava_id", ""), body.get("deadline_id", ""))
+    if k:
+        return JSONResponse(k)
+    return JSONResponse({"error": "Kart veya süre bulunamadı"}, status_code=404)
+
+
+# ============================================================
+# YEDEKLEME ENDPOINT'LERİ
+# ============================================================
+
+async def backup_list_endpoint(request):
+    """Mevcut yedekleri listele."""
+    if not BACKUP_AVAILABLE:
+        return JSONResponse({"backups": []})
+    return JSONResponse({"backups": backup_mod.list_backups()})
+
+
+async def backup_create_endpoint(request):
+    """Yeni yedek oluştur."""
+    if not BACKUP_AVAILABLE:
+        return JSONResponse({"error": "Yedekleme modülü kullanılamıyor"}, status_code=503)
+    result = backup_mod.create_backup()
+    if result.get("ok"):
+        result["size_formatted"] = backup_mod._format_size(result["size"])
+    return JSONResponse(result, status_code=200 if result.get("ok") else 500)
+
+
+async def backup_restore_endpoint(request):
+    """Yedekten geri yükle."""
+    if not BACKUP_AVAILABLE:
+        return JSONResponse({"error": "Yedekleme modülü kullanılamıyor"}, status_code=503)
+    body = await request.json()
+    filename = body.get("filename", "")
+    if not filename:
+        return JSONResponse({"error": "filename zorunlu"}, status_code=400)
+    result = backup_mod.restore_backup(filename)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 400)
+
+
+async def backup_download_endpoint(request):
+    """Yedek dosyasını indir."""
+    if not BACKUP_AVAILABLE:
+        return JSONResponse({"error": "Yedekleme modülü kullanılamıyor"}, status_code=503)
+    filename = request.query_params.get("file", "")
+    if not filename:
+        return JSONResponse({"error": "file parametresi zorunlu"}, status_code=400)
+    path = backup_mod.get_backup_path(filename)
+    if not path:
+        return JSONResponse({"error": "Yedek dosyası bulunamadı"}, status_code=404)
+    from starlette.responses import FileResponse
+    return FileResponse(path, filename=filename, media_type="application/zip")
+
+
+async def backup_delete_endpoint(request):
+    """Yedek dosyasını sil."""
+    if not BACKUP_AVAILABLE:
+        return JSONResponse({"error": "Yedekleme modülü kullanılamıyor"}, status_code=503)
+    body = await request.json()
+    filename = body.get("filename", "")
+    if not filename:
+        return JSONResponse({"error": "filename zorunlu"}, status_code=400)
+    if backup_mod.delete_backup(filename):
+        return JSONResponse({"status": "ok"})
+    return JSONResponse({"error": "Yedek dosyası bulunamadı"}, status_code=404)
+
+
+# ============================================================
+# ÖNBELLEK YÖNETİM ENDPOINT'LERİ
+# ============================================================
+async def cache_stats_endpoint(request):
+    """Önbellek istatistiklerini döndür."""
+    return JSONResponse(TOOL_CACHE.stats())
+
+async def cache_clear_endpoint(request):
+    """Tüm önbelleği temizle."""
+    count = TOOL_CACHE.clear()
+    return JSONResponse({"cleared": count, "status": "ok"})
+
+
+# ============================================================
+# API ANAHTAR YÖNETİMİ
+# ============================================================
+API_KEY_DEFS = {
+    "tavily": {"env_var": "TAVILY_API_KEY", "label": "Tavily API Anahtarı", "fallback": True},
+    "brave": {"env_var": "BRAVE_API_TOKEN", "label": "Brave API Token", "fallback": True},
+    "mistral": {"env_var": "MISTRAL_API_KEY", "label": "Mistral API Anahtarı", "fallback": False},
+    "evds": {"env_var": "EVDS_API_KEY", "label": "EVDS API Anahtarı", "fallback": False},
+}
+_KEYRING_SERVICE = "turkiye-mcp"
+
+
+def _get_user_api_key(key_name: str) -> Optional[str]:
+    """Kullanıcının API anahtarını al: keyring > env var > None."""
+    env_var = API_KEY_DEFS.get(key_name, {}).get("env_var", key_name)
+    # 1. Keyring (desktop modda)
+    try:
+        import keyring
+        key = keyring.get_password(_KEYRING_SERVICE, key_name)
+        if key:
+            return key
+    except Exception:
+        pass
+    # 2. Environment variable
+    return os.environ.get(env_var)
+
+
+def _set_user_api_key(key_name: str, value: str) -> bool:
+    """API anahtarını keyring'e kaydet."""
+    try:
+        import keyring
+        keyring.set_password(_KEYRING_SERVICE, key_name, value)
+        return True
+    except Exception:
+        return False
+
+
+def _delete_user_api_key(key_name: str) -> bool:
+    """API anahtarını keyring'den sil."""
+    try:
+        import keyring
+        keyring.delete_password(_KEYRING_SERVICE, key_name)
+        return True
+    except Exception:
+        return False
+
+
+async def api_keys_endpoint(request):
+    """API anahtar durumlarını getir (GET) veya güncelle (POST)."""
+    if request.method == "GET":
+        keys = {}
+        for name, info in API_KEY_DEFS.items():
+            key = _get_user_api_key(name)
+            if key:
+                keys[name] = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else "****"
+            else:
+                keys[name] = None
+            keys[f"{name}_fallback"] = info["fallback"]
+        return JSONResponse(keys)
+    # POST — anahtarları kaydet/sil
+    body = await request.json()
+    result = {}
+    for name, value in body.items():
+        if name not in API_KEY_DEFS:
+            continue
+        if value and value.strip():
+            ok = _set_user_api_key(name, value.strip())
+            result[name] = "saved" if ok else "error"
+        else:
+            ok = _delete_user_api_key(name)
+            result[name] = "deleted" if ok else "error"
+    # Modül client'larını güncelle
+    _refresh_api_keys()
+    return JSONResponse(result)
+
+
+def _refresh_api_keys():
+    """Kaydedilen API anahtarlarını ilgili modül client'larına uygula."""
+    global bddk_client, kvkk_client, sigorta_tahkim_client
+    tavily_key = _get_user_api_key("tavily")
+    brave_key = _get_user_api_key("brave")
+    # Sadece mevcut client'ları güncelle
+    if MODULES_AVAILABLE.get("bddk") and tavily_key:
+        try:
+            bddk_client.tavily_api_key = tavily_key
+        except Exception:
+            pass
+    if MODULES_AVAILABLE.get("kvkk") and brave_key:
+        try:
+            kvkk_client.brave_api_token = brave_key
+        except Exception:
+            pass
+    if MODULES_AVAILABLE.get("sigorta_tahkim") and tavily_key:
+        try:
+            sigorta_tahkim_client.tavily_api_key = tavily_key
+        except Exception:
+            pass
+
+# Başlangıçta kaydedilen API anahtarlarını uygula
+_refresh_api_keys()
+
+
 _MEMORY_EXTRACT_PROMPT = (
     "Sen bir bellek yöneticisisin. Kullanıcı-asistan görüşmesinden iki şey çıkar:\n\n"
     "1) EKLE — GELECEKTE hatırlanmaya değer KALICI kullanıcı bilgileri:\n"
@@ -4127,9 +3205,13 @@ TOOLS_CATALOG = [
     ("Hukuk", "search_bedesten_unified", "Yargıtay/Danıştay/yerel/istinaf birleşik karar arama"),
     ("Hukuk", "get_bedesten_document", "Karar tam metnini getirir"),
     ("Hukuk", "search_anayasa_unified", "Anayasa Mahkemesi kararları"),
+    ("Hukuk", "get_anayasa_document", "Anayasa Mahkemesi karar tam metni (sayfalı)"),
     ("Hukuk", "search_emsal", "EMSAL (UYAP) örnek kararlar"),
+    ("Hukuk", "get_emsal_document", "EMSAL karar tam metni"),
     ("Hukuk", "search_kik_v2_decisions", "Kamu İhale Kurumu kararları"),
+    ("Hukuk", "get_kik_document", "KİK kurul kararı tam metni"),
     ("Hukuk", "search_rekabet_kurumu", "Rekabet Kurumu kararları"),
+    ("Hukuk", "get_rekabet_document", "Rekabet Kurumu karar tam metni (sayfalı PDF)"),
     ("Hukuk", "search_sayistay_unified", "Sayıştay kararları"),
     ("Hukuk", "search_kvkk_decisions", "KVKK kararları"),
     ("Hukuk", "search_bddk_decisions", "BDDK kararları"),
@@ -4138,6 +3220,11 @@ TOOLS_CATALOG = [
     ("Mevzuat", "search_resmi_gazete", "Resmi Gazete belge arama"),
     ("Mevzuat", "get_daily_bulletin", "Günlük Resmi Gazete bülteni"),
     ("Mevzuat", "get_recent_mali_changes", "Son N günün mali belgeleri"),
+    ("Mevzuat", "search_mevzuat_bedesten", "Mevzuat araması (kanun, KHK, yönetmelik)"),
+    ("Mevzuat", "get_mevzuat_document", "Mevzuat tam metni"),
+    ("Mevzuat", "get_mevzuat_article", "Mevzuat belirli madde metni"),
+    ("Mevzuat", "get_mevzuat_article_tree", "Mevzuat madde ağacı (içindekiler)"),
+    ("Mevzuat", "search_mevzuat", "Mevzuat.gov.tr araması (alternatif kaynak)"),
     ("Mali", "search_gib_sirkuler", "GİB sirküler arama"),
     ("Mali", "get_tax_calendar", "Vergi takvimi"),
     ("Mali", "check_efatura_taxpayer", "VKN/TCKN e-Fatura mükellef sorgu"),
@@ -4155,6 +3242,17 @@ TOOLS_CATALOG = [
     ("UYAP", "get_uyap_parties", "UYAP belgesindeki taraflar"),
     ("UYAP", "get_uyap_references", "UYAP belgesindeki referanslar"),
     ("Sistem", "check_health", "Tüm modüllerin durumu"),
+    ("Süreler", "list_deadlines", "Hukuki süreleri listele"),
+    ("Süreler", "add_deadline", "Yeni hukuki süre ekle"),
+    ("Süreler", "get_upcoming_deadlines", "Yaklaşan süreleri getir"),
+    ("Süreler", "get_overdue_deadlines", "Gecikmiş süreleri getir"),
+    ("Süreler", "compute_deadline", "Süre bitiş tarihini hesapla"),
+    ("Dava", "list_dava_kartlari", "Dava kartlarını listele"),
+    ("Dava", "add_dava_karti", "Yeni dava kartı ekle"),
+    ("Dava", "search_dava_kartlari", "Dava kartlarında ara"),
+    ("Dava", "link_deadline_to_dava", "Dava kartına süre bağla"),
+    ("Yedek", "create_backup", "Veri yedeği oluştur"),
+    ("Yedek", "list_backups", "Mevcut yedekleri listele"),
 ]
 
 
@@ -4399,6 +3497,37 @@ async def chat_endpoint(request):
                 "\n\nKULLANICI HAFIZASI (öncelikli — bu bilgileri her yanıtta göz önünde bulundur):\n"
                 + "\n".join(mem_lines)
             )
+    # Süre hatırlatma enjeksiyonu
+    if DEADLINES_AVAILABLE:
+        try:
+            upcoming = deadlines_mod.get_upcoming(days=30)
+            overdue = deadlines_mod.get_overdue()
+            if upcoming or overdue:
+                dl_lines = []
+                if overdue:
+                    dl_lines.append("GECİKMİŞ SÜRELER (acil harekete geçirilmeli):")
+                    for d in overdue:
+                        dl_lines.append(f"  - [{d['category']}] {d['title']} — bitiş: {d['deadline_date']} (GECİKMİŞ!)")
+                if upcoming:
+                    dl_lines.append("YAKLAŞAN SÜRELER:")
+                    for d in upcoming:
+                        dl_lines.append(f"  - [{d['category']}] {d['title']} — bitiş: {d['deadline_date']}")
+                full_system += "\n\nHUKUKİ SÜRE HATIRLATMA (kullanıcıyı uyar):\n" + "\n".join(dl_lines)
+        except Exception:
+            pass
+    if DAVA_AVAILABLE:
+        try:
+            kartlar = dava_mod.list_kartlar(durum="devam_ediyor")
+            if kartlar:
+                dava_lines = ["AKTİF DAVA DOSYALARI:"]
+                for k in kartlar[:5]:
+                    tarafs = f"{k.get('taraf_muvekkil', '')} vs {k.get('taraf_karsi', '')}".strip(' vs')
+                    dava_lines.append(f"  - [{dava_mod.DAVA_TURLERI.get(k['dava_turu'], {}).get('label', k['dava_turu'])}] {k['esas_no']} — {tarafs} ({k.get('daire', '')})")
+                if len(kartlar) > 5:
+                    dava_lines.append(f"  ... ve {len(kartlar)-5} dosya daha")
+                full_system += "\n\n" + "\n".join(dava_lines)
+        except Exception:
+            pass
     if tool_context:
         full_system += f"\n\nMCP araç sonuçları:\n\n{tool_context}"
 
@@ -4463,6 +3592,277 @@ async def chat_endpoint(request):
     })
 
 
+async def chat_stream_endpoint(request):
+    """Chat SSE endpoint — streaming LLM yanıtı üretir.
+
+    /api/chat ile aynı hazırlık kodunu kullanır, ancak yanıt tek JSON yerine
+    SSE event'leri (meta, token, done, error) olarak gönderilir.
+    Frontend fetch + ReadableStream ile token-token okur.
+    """
+    # LLM yapılandırmasını al
+    provider_id, api_key, model = _get_llm_config(request)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    if body.get("provider"):
+        provider_id = body["provider"].lower()
+    if body.get("api_key"):
+        api_key = body["api_key"]
+    if body.get("model"):
+        model = body["model"]
+
+    if provider_id not in LLM_PROVIDERS:
+        err = json.dumps({"message": f"Bilinmeyen sağlayıcı: {provider_id}"})
+        return StreamingResponse(
+            iter([f"event: error\ndata: {err}\n\n"]),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    provider_config = LLM_PROVIDERS[provider_id]
+
+    if provider_config["needs_key"] and not api_key:
+        err = json.dumps({"message": "API anahtarı gerekli.", "needs_key": True,
+                          "provider": provider_id})
+        return StreamingResponse(
+            iter([f"event: error\ndata: {err}\n\n"]),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # IP rate limiting
+    if provider_config["needs_key"]:
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+        day_ago = now - 86400
+        ip_rate_limits[client_ip] = [t for t in ip_rate_limits.get(client_ip, []) if t > day_ago]
+        if len(ip_rate_limits[client_ip]) >= RATE_LIMIT_PER_IP:
+            err = json.dumps({"message": f"Günlük limit aşıldı ({RATE_LIMIT_PER_IP} istek/IP)."})
+            return StreamingResponse(
+                iter([f"event: error\ndata: {err}\n\n"]),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        ip_rate_limits.setdefault(client_ip, []).append(now)
+
+    message = (body.get("message", "") or "").strip()[:2000]
+    if not message:
+        err = json.dumps({"message": "Mesaj boş olamaz."})
+        return StreamingResponse(
+            iter([f"event: error\ndata: {err}\n\n"]),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Belge bağlamı, geçmiş, MCP araçları, emsal, skills — /api/chat ile aynı
+    document_context = (body.get("document_context") or "").strip()
+    if len(document_context) > 14000:
+        document_context = document_context[:14000] + "\n…(belge kısaltıldı)"
+
+    raw_history = body.get("history") or []
+    history = []
+    if isinstance(raw_history, list):
+        for h in raw_history[-12:]:
+            role = h.get("role")
+            text = (h.get("text") or h.get("content") or "").strip()
+            if role in ("user", "assistant") and text:
+                history.append({"role": role, "content": text[:2000]})
+
+    tool_context, called_tools = await _route_and_call(message)
+
+    wants_precedent = any(k in message.lower() for k in
+                          ["emsal", "içtihat", "ictihat", "benzer karar", "örnek karar",
+                           "ornek karar", "karşılaştır", "karsilastir", "benzer"])
+    if wants_precedent or document_context:
+        basis_text = (document_context + " " + message) if document_context else message
+        emsal_query = _legal_search_terms(basis_text)
+        if not emsal_query:
+            emsal_query = (message or "")[:70]
+        try:
+            criminal = _is_criminal_context(basis_text)
+            emsal_block = await _fetch_emsal_with_content(emsal_query, criminal=criminal, limit=3)
+            if emsal_block:
+                tool_context = (tool_context + "\n---\n" if tool_context else "") + emsal_block
+                called_tools.add("search_bedesten_unified")
+                called_tools.add("get_bedesten_document")
+        except Exception:
+            pass
+
+    doc_type = (body.get("doc_type") or "").strip()
+    related = body.get("related") or []
+
+    skills_prompt = ""
+    skills_used = []
+    if SKILLS_AVAILABLE:
+        try:
+            selected = skills_engine.select_skills(message, doc_type)
+            skills_prompt = skills_engine.build_skills_prompt(selected)
+            skills_used = [s["name"] for s in selected]
+        except Exception:
+            skills_prompt = ""
+
+    doc_system = ""
+    if document_context:
+        dt_label = (" (" + doc_type + ")") if doc_type else ""
+        doc_system = (
+            f"\n\nKULLANICI BİR BELGE YÜKLEDİ{dt_label}. Önce belgenin türünü, taraflarını ve "
+            "konusunu (suç tipi/uyuşmazlık) kısaca özetle. Soru belgeyle ilgisizse kibarca belirt, "
+            "sonra yine de yanıtla.\n\n--- BELGE İÇERİĞİ ---\n"
+            + document_context + "\n--- BELGE SONU ---"
+        )
+
+    emsal_system = ""
+    if "EMSAL ARAMA" in (tool_context or ""):
+        emsal_system = (
+            "\n\nEMSAL KARARLAR — ÖNEMLİ KURALLAR:\n"
+            "1. Aşağıdaki MCP araç sonuçlarında 'KARAR TAM METNİ' başlıklı bölümler GERÇEK karar "
+            "metinleridir. Karşılaştırma ve sonuç çıkarımını YALNIZCA bu metinlere dayandır.\n"
+            "2. ASLA uydurma karar veya genel 'genellikle ... ile ilgilidir' türü tahmini açıklama "
+            "yazma. Bir kararın içeriğini ancak metni verildiyse aktar.\n"
+            "3. Her emsal için künyeyi tam yaz: **Mahkeme/Daire | Esas No | Karar No | (Bedesten ID)**. "
+            "ID, kullanıcının UYAP/Bedesten'de karara ulaşması için referanstır.\n"
+            "4. Şu yapıyı kullan: (a) Belgedeki olay ve hukuki nitelendirme, (b) Her emsal kararın "
+            "ilgili kısmı ve ortaya koyduğu ilke, (c) **Benzerlik/Farklılık** (olgular, deliller, "
+            "hukuki nitelendirme), (d) **Olası sonuç** (lehte/aleyhte, ihtiyatlı dille), (e) öneriler.\n"
+            "5. İçerik çekilemediyse bunu açıkça belirt; künye listesini emsal olarak sun ama içerik "
+            "uydurma."
+        )
+
+    related_system = ""
+    if related:
+        lines = []
+        for r in related[:5]:
+            m = r.get("matched", [{}])
+            tag = m[0].get("value", "") if m else ""
+            lines.append(f"- '{r.get('title','')}' ({r.get('folder','Genel')}) — eşleşme: {tag}")
+        related_system = (
+            "\n\nİLGİLİ GEÇMİŞ KAYITLAR (çalışma alanından): Aşağıdaki kayıtlarda benzer "
+            "belge/uyuşmazlık tespit edildi. Yanıtında uygun yerde kullanıcıyı bunlara yönlendir "
+            "('Çalışma alanınızdaki … kaydında benzer bir durum var' gibi):\n" + "\n".join(lines)
+        )
+
+    full_system = SYSTEM_PROMPT
+    if skills_prompt:
+        full_system += "\n\n" + skills_prompt
+    full_system += doc_system + emsal_system + related_system
+    if MEMORY_AVAILABLE:
+        mems = memory_mod.list_memories()
+        if mems:
+            cat_labels = {"preference": "tercih", "fact": "olgu", "instruction": "talimat"}
+            mem_lines = [f"- [{cat_labels.get(m['category'], m['category'])}] {m['content']}" for m in mems]
+            full_system += (
+                "\n\nKULLANICI HAFIZASI (öncelikli — bu bilgileri her yanıtta göz önünde bulundur):\n"
+                + "\n".join(mem_lines)
+            )
+    # Süre hatırlatma enjeksiyonu
+    if DEADLINES_AVAILABLE:
+        try:
+            upcoming = deadlines_mod.get_upcoming(days=30)
+            overdue = deadlines_mod.get_overdue()
+            if upcoming or overdue:
+                dl_lines = []
+                if overdue:
+                    dl_lines.append("GECİKMİŞ SÜRELER (acil harekete geçirilmeli):")
+                    for d in overdue:
+                        dl_lines.append(f"  - [{d['category']}] {d['title']} — bitiş: {d['deadline_date']} (GECİKMİŞ!)")
+                if upcoming:
+                    dl_lines.append("YAKLAŞAN SÜRELER:")
+                    for d in upcoming:
+                        dl_lines.append(f"  - [{d['category']}] {d['title']} — bitiş: {d['deadline_date']}")
+                full_system += "\n\nHUKUKİ SÜRE HATIRLATMA (kullanıcıyı uyar):\n" + "\n".join(dl_lines)
+        except Exception:
+            pass
+    if DAVA_AVAILABLE:
+        try:
+            kartlar = dava_mod.list_kartlar(durum="devam_ediyor")
+            if kartlar:
+                dava_lines = ["AKTİF DAVA DOSYALARI:"]
+                for k in kartlar[:5]:
+                    tarafs = f"{k.get('taraf_muvekkil', '')} vs {k.get('taraf_karsi', '')}".strip(' vs')
+                    dava_lines.append(f"  - [{dava_mod.DAVA_TURLERI.get(k['dava_turu'], {}).get('label', k['dava_turu'])}] {k['esas_no']} — {tarafs} ({k.get('daire', '')})")
+                if len(kartlar) > 5:
+                    dava_lines.append(f"  ... ve {len(kartlar)-5} dosya daha")
+                full_system += "\n\n" + "\n".join(dava_lines)
+        except Exception:
+            pass
+    if tool_context:
+        full_system += f"\n\nMCP araç sonuçları:\n\n{tool_context}"
+
+    # Failover zinciri
+    chain = [{"provider": provider_id, "model": model}]
+    client_fallbacks = body.get("fallbacks") or []
+    if not client_fallbacks and GATEWAY_AVAILABLE:
+        try:
+            _gw_cfg = gateway_mod.load_config()
+            client_fallbacks = _gw_cfg.get("default_chain", [])
+        except Exception:
+            pass
+    for fb in client_fallbacks[:4]:
+        p = (fb.get("provider") or "").lower()
+        if p in LLM_PROVIDERS:
+            chain.append({"provider": p, "model": fb.get("model") or LLM_PROVIDERS[p]["default_model"]})
+
+    api_keys_map = {provider_id: api_key}
+    for k, v in (body.get("api_keys") or {}).items():
+        if v:
+            api_keys_map[(k or "").lower()] = v
+    if OPENROUTER_API_KEY and "openrouter" not in api_keys_map:
+        api_keys_map["openrouter"] = OPENROUTER_API_KEY
+
+    try:
+        timeout_override = int(body.get("timeout_override") or 0)
+    except Exception:
+        timeout_override = 0
+
+    def _timeout_for(pid):
+        if timeout_override and 10 <= timeout_override <= 600:
+            return timeout_override
+        pc = LLM_PROVIDERS.get(pid, {})
+        if "timeout" in pc and isinstance(pc["timeout"], (int, float)) and pc["timeout"] >= 10:
+            return int(pc["timeout"])
+        return 300 if pid == "ollama" else 120
+
+    remaining = RATE_LIMIT_PER_IP - len(ip_rate_limits.get(request.client.host if request.client else "unknown", []))
+
+    # SSE generator
+    async def _sse_gen():
+        try:
+            async for event in GATEWAY.stream(
+                system=full_system, history=history, message=message,
+                chain=chain, api_keys=api_keys_map, timeout_for=_timeout_for,
+            ):
+                if await request.is_disconnected():
+                    break
+                if event["type"] == "meta":
+                    yield f"event: meta\ndata: {json.dumps({'provider': event['provider'], 'model': event['model']})}\n\n"
+                elif event["type"] == "token":
+                    yield f"event: token\ndata: {json.dumps({'content': event.get('content', ''), 'reasoning': event.get('reasoning', '')})}\n\n"
+                elif event["type"] == "done":
+                    payload = {
+                        "sources": list(called_tools)[:5],
+                        "skills_used": skills_used,
+                        "attempts": event.get("attempts", []),
+                        "usage": event.get("usage", {}),
+                        "context": event.get("context", {}),
+                        "remaining": remaining,
+                    }
+                    yield f"event: done\ndata: {json.dumps(payload)}\n\n"
+                elif event["type"] == "error":
+                    payload = {"message": event.get("message", ""), "attempts": event.get("attempts", [])}
+                    yield f"event: error\ndata: {json.dumps(payload)}\n\n"
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        _sse_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
 # ============================================================
 # ASGI APPLICATION
 # ============================================================
@@ -4482,6 +3882,7 @@ starlette_app = Starlette(
         Route("/", homepage),
         Route("/health", health_endpoint),
         Route("/api/chat", chat_endpoint, methods=["POST"]),
+        Route("/api/chat/stream", chat_stream_endpoint, methods=["POST"]),
         Route("/api/chat/providers", providers_endpoint, methods=["GET"]),
         Route("/api/chat/configure", configure_llm_endpoint, methods=["POST"]),
         Route("/api/chat/status", llm_status_endpoint, methods=["GET"]),
@@ -4496,6 +3897,7 @@ starlette_app = Starlette(
         Route("/api/computer/permissions", computer_permissions_endpoint, methods=["GET", "POST"]),
         Route("/api/tools", tools_catalog_endpoint, methods=["GET"]),
         Route("/api/upload/pdf", upload_pdf_endpoint, methods=["POST"]),
+        Route("/api/export/docx", export_docx_endpoint, methods=["POST"]),
         Route("/api/search/refs", search_document_refs_endpoint, methods=["POST"]),
         Route("/api/upload/uyap", upload_uyap_endpoint, methods=["POST"]),
         Route("/api/workspace", workspace_snapshot_endpoint, methods=["GET"]),
@@ -4512,6 +3914,32 @@ starlette_app = Starlette(
         Route("/api/memory/delete", memory_delete_endpoint, methods=["POST"]),
         Route("/api/memory/learn", memory_learn_endpoint, methods=["POST"]),
         Route("/api/memory/clear", memory_clear_endpoint, methods=["POST"]),
+        # Süre takip
+        Route("/api/deadlines", deadline_list_endpoint, methods=["GET"]),
+        Route("/api/deadlines", deadline_add_endpoint, methods=["POST"]),
+        Route("/api/deadlines/update", deadline_update_endpoint, methods=["POST"]),
+        Route("/api/deadlines/delete", deadline_delete_endpoint, methods=["POST"]),
+        Route("/api/deadlines/complete", deadline_complete_endpoint, methods=["POST"]),
+        Route("/api/deadlines/upcoming", deadline_upcoming_endpoint, methods=["GET"]),
+        Route("/api/deadlines/overdue", deadline_overdue_endpoint, methods=["GET"]),
+        # Dava kartları
+        Route("/api/dava-kartlari", dava_list_endpoint, methods=["GET"]),
+        Route("/api/dava-kartlari", dava_add_endpoint, methods=["POST"]),
+        Route("/api/dava-kartlari/update", dava_update_endpoint, methods=["POST"]),
+        Route("/api/dava-kartlari/delete", dava_delete_endpoint, methods=["POST"]),
+        Route("/api/dava-kartlari/search", dava_search_endpoint, methods=["GET"]),
+        Route("/api/dava-kartlari/link-deadline", dava_link_deadline_endpoint, methods=["POST"]),
+        Route("/api/dava-kartlari/unlink-deadline", dava_unlink_deadline_endpoint, methods=["POST"]),
+        # Yedekleme
+        Route("/api/backup", backup_list_endpoint, methods=["GET"]),
+        Route("/api/backup/create", backup_create_endpoint, methods=["POST"]),
+        Route("/api/backup/restore", backup_restore_endpoint, methods=["POST"]),
+        Route("/api/backup/download", backup_download_endpoint, methods=["GET"]),
+        Route("/api/backup/delete", backup_delete_endpoint, methods=["POST"]),
+        Route("/api/cache/stats", cache_stats_endpoint, methods=["GET"]),
+        Route("/api/cache/clear", cache_clear_endpoint, methods=["POST"]),
+        Route("/api/settings/api-keys", api_keys_endpoint, methods=["GET", "POST"]),
+        Mount("/static", app=StaticFiles(directory=str(_base_path() / "static")), name="static"),
         Mount("/", app=mcp_asgi),
     ],
 )

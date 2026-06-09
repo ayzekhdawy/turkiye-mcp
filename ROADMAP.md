@@ -34,28 +34,28 @@
 > Kod incelemesiyle doğrulanan gerçek boşluklar. Öncelik kullanıcı belirler.
 
 **Hukuki güvenilirlik (yüksek öncelik)**
-- [ ] **A. Streaming yanıt** — Model yanıtı token-token akmalı (SSE/stream); uzun hukuki cevaplarda algılanan hızı kökten artırır. Şu an tam yanıt beklenip tek seferde gösteriliyor.
-- [ ] **B. OCR'ı EXE'ye gömme** — Taranmış (görüntü) PDF'ler okunamıyor; OCR fallback var ama pytesseract/poppler opsiyonel ve EXE'de yok. Tesseract'ı paketle veya gömülü bir OCR çözümü ekle.
-- [ ] **C. Tam metin çekme (emsal/anayasa/kik/rekabet)** — Şu an yalnızca Bedesten gerçek karar metni getiriyor; diğerleri numara/kısaltma döndürüp uydurma riskine açık. İçerik çekimi eklensin.
-- [ ] **D. Mevzuat tam metni** — "TCK 245'in tam metni" gibi kanun/madde metnini getiren araç bağlı değil; mevzuat tam-metin arama+okuma eklensin.
-- [ ] **E. Tool sonuç önbelleği + kullanıcı API anahtarları** — Sunucu taraflı TTL önbellek (Bedesten rate-limit/yavaşlık); paylaşımlı dev token'ları (Tavily/Brave) yerine kullanıcı anahtarı.
+- [x] **A. Streaming yanıt** — Model yanıtı token-token akmalı (SSE/stream); uzun hukuki cevaplarda algılanan hızı kökten artırır. Şu an tam yanıt beklenip tek seferde gösteriliyor. (v1.7.1)
+- [x] **B. OCR'ı EXE'ye gömme** — Taranmış (görüntü) PDF'ler okunamıyor; OCR fallback var ama pytesseract/poppler opsiyonel ve EXE'de yok. Tesseract'ı paketle veya gömülü bir OCR çözümü ekle. (v1.7.1 — RapidOCR + pymupdf OCR)
+- [x] **C. Tam metin çekme (emsal/anayasa/kik/rekabet)** — Şu an yalnızca Bedesten gerçek karar metni getiriyor; diğerleri numara/kısaltma döndürüp uydurma riskine açık. İçerik çekimi eklensin. (v1.7.2 — get_emsal/anayasa/kik/rekabet_document MCP tool'ları)
+- [x] **D. Mevzuat tam metni** — "TCK 245'in tam metni" gibi kanun/madde metnini getiren araç bağlı değil; mevzuat tam-metin arama+okuma eklensin. (v1.7.2 — BedestenClient + MevzuatApiClientNew MCP tool'ları)
+- [x] **E. Tool sonuç önbelleği + kullanıcı API anahtarları** — Sunucu taraflı TTL önbellek (Bedesten rate-limit/yavaşlık); paylaşımlı dev token'ları (Tavily/Brave) yerine kullanıcı anahtarı. (v1.7.2 — ToolCache + @cached_tool decorator + Önbellek/Anahtarlar UI + keyring API anahtar yönetimi)
 
 **Profesyonel iş akışı**
-- [ ] **F. Belge taslağı üretimi** — Dilekçe/sözleşme/ihtarname taslağı üret + Word/PDF dışa aktar (sadece analiz değil, drafting).
-- [ ] **G. Süre/takvim takibi** — Dava açma/temyiz/itiraz süreleri (7/15/30 gün) için hatırlatma/takvim.
-- [ ] **H. Dava/müvekkil kartı** — Klasöre esas no, müvekkil, karşı taraf gibi yapılandırılmış meta.
+- [x] **F. Belge taslağı üretimi** — Dilekçe/sözleşme/ihtarname taslağı üret + Word/PDF dışa aktar (sadece analiz değil, drafting). (v1.7.1 — 3 drafting skill + DOCX export)
+- [x] **G. Süre/takvim takibi** — Dava açma/temyiz/itiraz süreleri (7/15/30 gün) için hatırlatma/takvim. (v1.7.3 — deadlines.py + 7 MCP tool + 7 API endpoint + Süreler UI + prompt enjeksiyonu + hukuki-sureler skill)
+- [x] **H. Dava/müvekkil kartı** — Klasöre esas no, müvekkil, karşı taraf gibi yapılandırılmış meta. (v1.7.3 — dava_kartlari.py + 7 MCP tool + 7 API endpoint + Davalar UI + prompt enjeksiyonu + dava-yonetimi skill)
 
 **Güvenlik & gizlilik**
 - [ ] **I. Veri şifreleme + anahtar güvenliği** — Çalışma alanı/bellek şifreli saklama; anahtarların düz-metin localStorage yerine güvenli saklanması; belirgin KVKK/yerel-mod gizlilik duruşu.
 - [ ] **J. execute_command sertleştirme** — Engel listesini genişlet (powershell -enc, curl|sh vb.) veya yalnızca beyaz-liste.
 
 **Dağıtım & dayanıklılık**
-- [ ] **K. Yedekleme/dışa-içe aktarma** — Çalışma alanı + bellek yedek al/geri yükle (.zip), makine değişiminde veri taşıma.
+- [x] **K. Yedekleme/dışa-içe aktarma** — Çalışma alanı + bellek yedek al/geri yükle (.zip), makine değişiminde veri taşıma. (v1.7.4 — backup.py + 5 API endpoint + 2 MCP araç + sidebar yedek bölümü + geri yükleme otomatik yedek + path traversal koruması)
 - [ ] **L. macOS doğrulama + otomatik güncelleme** — macOS'te gerçek test; EXE/uygulama için sürüm kontrolü + güncelleme bildirimi.
 
 **Mühendislik olgunluğu**
 - [ ] **M. Otomatik test paketi** — pytest (endpoint/güvenlik) + gömülü JS node --check CI adımı; regresyon koruması.
-- [ ] **N. Frontend'i dosyalara ayırma** — Devasa gömülü HTML string'i gerçek statik dosyalara böl (bakım + ters-bölü/tırnak kırılganlığını azalt).
+- [x] **N. Frontend'i dosyalare ayırma** — DASHBOARD_HTML string'i (2540 satır) gerçek statik dosyalara ayrıldı: `templates/index.html`, `static/css/style.css`, `static/js/app.js`. app.py 3637 satıra düştü (6171'den). Python string kaçışı gereksiz oldu. `_base_path()` + `StaticFiles` mount eklendi. PyInstaller spec güncellendi. (v1.7.3)
 
 ## Bellek komutları + daraltılabilir sidebar (v1.7.1)
 Sohbet-içi "unut" komutu: learn endpoint mevcut belleği prompt'a verir, `{add, forget}` döndürür; istenen kayıtlar silinir. Daha seçici çıkarım promptu. `/api/memory/clear` + sidebar 🗑 temizle. Daraltılabilir kenar çubuğu: `.shell.sidebar-collapsed` (264↔66px), `toggleSidebar()`, localStorage'da kalıcı.

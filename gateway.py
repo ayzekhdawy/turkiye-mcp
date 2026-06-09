@@ -225,6 +225,289 @@ class LLMGateway:
                 usage["total"] = usage["prompt"] + usage["completion"]
             return {"text": text, "usage": usage}
 
+    # ---- tek sağlayıcıya streaming çağrı ----
+    async def stream_one(self, provider_id: str, model: str, system: str,
+                         history: List[Dict[str, str]], message: str,
+                         api_key: str, timeout: float):
+        """Tek bir sağlayıcıya streaming LLM çağrısı yapar.
+
+        Yields:
+            {"type": "token", "content": ..., "reasoning": ...}  — her delta
+            {"type": "usage", "usage": {...}}                     — stream sonu
+        Hata durumunda exception fırlatır (stream() tarafından yakalanır).
+        """
+        pc = self.providers[provider_id]
+        reasoning = is_reasoning_model(model)
+        max_tokens = 4096 if reasoning else 2048
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
+            if pc.get("is_anthropic"):
+                async for chunk in self._stream_anthropic(
+                    client, pc["url"], {
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    }, {
+                        "model": model,
+                        "max_tokens": max_tokens,
+                        "system": system,
+                        "messages": history + [{"role": "user", "content": message}],
+                        "stream": True,
+                    }, model, reasoning
+                ):
+                    yield chunk
+            else:
+                headers = {"Content-Type": "application/json"}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                if provider_id == "openrouter":
+                    headers["HTTP-Referer"] = "https://turkiye-mcp.up.railway.app"
+                messages = [{"role": "system", "content": system}] + history + [
+                    {"role": "user", "content": message}]
+                payload = {"model": model, "messages": messages,
+                           "max_tokens": max_tokens, "stream": True}
+                if provider_id in ("ollama", "ollama_cloud") and reasoning:
+                    payload["reasoning_effort"] = "low"
+                async for chunk in self._stream_openai(
+                    client, pc["url"], headers, payload, provider_id, model, reasoning
+                ):
+                    yield chunk
+
+    async def _stream_openai(self, client, url, headers, payload,
+                              provider_id, model, reasoning):
+        """OpenAI-uyumlu SSE streaming parser."""
+        # İstek — 400 ve reasoning_effort varsa parametresiz retry
+        need_retry = provider_id in ("ollama", "ollama_cloud") and reasoning
+        async with client.stream("POST", url, headers=headers, json=payload) as resp:
+            if resp.status_code == 400 and need_retry:
+                # Yanıtı tüketmeden kapat, parametresiz retry yap
+                await resp.aread()
+                payload_no_re = {k: v for k, v in payload.items() if k != "reasoning_effort"}
+                async with client.stream("POST", url, headers=headers, json=payload_no_re) as resp2:
+                    if resp2.status_code >= 400:
+                        error_body = await resp2.aread()
+                        raise httpx.HTTPStatusError(
+                            f"HTTP {resp2.status_code}",
+                            request=resp2.request,
+                            response=resp2,
+                        )
+                    async for chunk in self._parse_openai_stream(resp2):
+                        yield chunk
+                return
+            if resp.status_code >= 400:
+                error_body = await resp.aread()
+                raise httpx.HTTPStatusError(
+                    f"HTTP {resp.status_code}",
+                    request=resp.request,
+                    response=resp,
+                )
+            async for chunk in self._parse_openai_stream(resp):
+                yield chunk
+
+    async def _parse_openai_stream(self, resp):
+        """OpenAI-uyumlu SSE yanıtını parse eder, token ve usage delta'ları yield eder."""
+        usage_data = {}
+        buf = b""
+        async for raw in resp.aiter_bytes():
+            buf += raw
+            while b"\n" in buf:
+                line_bytes, buf = buf.split(b"\n", 1)
+                line = line_bytes.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                if line == "data: [DONE]":
+                    # Stream bitti
+                    if not usage_data.get("prompt"):
+                        usage_data["prompt"] = 0
+                    if not usage_data.get("completion"):
+                        usage_data["completion"] = 0
+                    usage_data["total"] = usage_data["prompt"] + usage_data["completion"]
+                    yield {"type": "usage", "usage": usage_data}
+                    return
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    # Usage (bazı sağlayıcılar son chunk'ta gönderir)
+                    if "usage" in chunk:
+                        usage_data = _extract_usage(chunk)
+                    choices = chunk.get("choices", [])
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta", {})
+                    content = delta.get("content", "") or ""
+                    reasoning_text = delta.get("reasoning", "") or delta.get("reasoning_content", "") or ""
+                    if content or reasoning_text:
+                        yield {"type": "token", "content": content, "reasoning": reasoning_text}
+        # Akış bitti ama [DONE] gelmediyse
+        if not usage_data.get("prompt"):
+            usage_data["prompt"] = 0
+        if not usage_data.get("completion"):
+            usage_data["completion"] = 0
+        usage_data["total"] = usage_data["prompt"] + usage_data["completion"]
+        yield {"type": "usage", "usage": usage_data}
+
+    async def _stream_anthropic(self, client, url, headers, payload, model, reasoning):
+        """Anthropic SSE streaming parser."""
+        async with client.stream("POST", url, headers=headers, json=payload) as resp:
+            if resp.status_code >= 400:
+                error_body = await resp.aread()
+                raise httpx.HTTPStatusError(
+                    f"HTTP {resp.status_code}",
+                    request=resp.request,
+                    response=resp,
+                )
+            usage_data = {}
+            buf = b""
+            async for raw in resp.aiter_bytes():
+                buf += raw
+                while b"\n" in buf:
+                    line_bytes, buf = buf.split(b"\n", 1)
+                    line = line_bytes.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+                    if line.startswith("event: "):
+                        event_type = line[7:].strip()
+                        continue
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        msg_type = data.get("type", "")
+                        if msg_type == "message_start":
+                            msg = data.get("message", {})
+                            if "usage" in msg:
+                                usage_data["prompt"] = msg["usage"].get("input_tokens", 0)
+                        elif msg_type == "content_block_start":
+                            pass  # blok başlangıcı
+                        elif msg_type == "content_block_delta":
+                            delta = data.get("delta", {})
+                            delta_type = delta.get("type", "")
+                            if delta_type == "text_delta":
+                                yield {"type": "token", "content": delta.get("text", ""), "reasoning": ""}
+                            elif delta_type == "thinking_delta":
+                                yield {"type": "token", "content": "", "reasoning": delta.get("thinking", "")}
+                        elif msg_type == "message_delta":
+                            delta_usage = data.get("usage", {})
+                            if delta_usage:
+                                usage_data["completion"] = delta_usage.get("output_tokens", 0)
+                            # message_delta = stream sonu yaklaşıyor
+                        elif msg_type == "message_stop":
+                            if not usage_data.get("prompt"):
+                                usage_data["prompt"] = 0
+                            usage_data["total"] = usage_data.get("prompt", 0) + usage_data.get("completion", 0)
+                            yield {"type": "usage", "usage": usage_data}
+                            return
+            # Akış bitti ama message_stop gelmediyse
+            if not usage_data.get("prompt"):
+                usage_data["prompt"] = 0
+            usage_data["total"] = usage_data.get("prompt", 0) + usage_data.get("completion", 0)
+            yield {"type": "usage", "usage": usage_data}
+
+    # ---- zincir üzerinden streaming (failover) ----
+    async def stream(self, *, system: str, history: List[Dict[str, str]], message: str,
+                     chain: List[Dict[str, str]], api_keys: Dict[str, str],
+                     timeout_for=None):
+        """Failover zinciri üzerinden streaming LLM çağrısı.
+
+        İlk token gelene kadar hatalarda sonraki sağlayıcıya geçer.
+        İlk token geldikten sonra stream koparsa hata event'i yield eder.
+
+        Yields:
+            {"type": "meta", "provider": ..., "model": ...}
+            {"type": "token", "content": ..., "reasoning": ...}
+            {"type": "done", "usage": ..., "context": ..., "attempts": ...}
+            {"type": "error", "message": ..., "attempts": ...}
+        """
+        attempts: List[Dict[str, Any]] = []
+        last_error = ""
+
+        for step in chain:
+            pid = (step.get("provider") or "").lower()
+            pc = self.providers.get(pid)
+            if not pc:
+                continue
+            model = step.get("model") or pc["default_model"]
+            api_key = api_keys.get(pid, "") or ""
+            if pc["needs_key"] and not api_key:
+                attempts.append({"provider": pid, "model": model, "status": "no_key"})
+                last_error = f"{pc['name']} için API anahtarı yok"
+                continue
+
+            timeout = timeout_for(pid) if timeout_for else (300 if pid == "ollama" else 120)
+            m = self.metrics[pid]
+            m["calls"] += 1
+            t0 = time.time()
+            got_token = False
+            collected_content = ""
+            collected_reasoning = ""
+            collected_usage = None
+
+            try:
+                async for chunk in self.stream_one(pid, model, system, history, message, api_key, timeout):
+                    if chunk["type"] == "token":
+                        if not got_token:
+                            got_token = True
+                            dt = (time.time() - t0) * 1000
+                            m["latency_ms"] += dt
+                            yield {"type": "meta", "provider": pid, "model": model}
+                        collected_content += chunk.get("content", "")
+                        collected_reasoning += chunk.get("reasoning", "")
+                        yield chunk
+                    elif chunk["type"] == "usage":
+                        collected_usage = chunk.get("usage", {})
+
+                # Stream başarıyla tamamlandı
+                dt_total = (time.time() - t0) * 1000
+                m["ok"] += 1
+                m["last"] = "ok"
+                usage = collected_usage or {"prompt": 0, "completion": 0, "total": 0}
+                m["tokens"] = m.get("tokens", 0) + usage.get("total", 0)
+                ctx = estimate_context(model)
+                used = usage.get("total", 0)
+                attempts.append({"provider": pid, "model": model, "status": "ok",
+                                 "ms": int(dt_total), "tokens": usage.get("total", 0)})
+                yield {"type": "done",
+                       "usage": usage,
+                       "context": {"window": ctx, "used": used,
+                                   "ratio": round(used / ctx, 4) if ctx else 0},
+                       "attempts": attempts}
+                return
+
+            except httpx.TimeoutException:
+                m["fail"] += 1; m["last"] = "timeout"
+                attempts.append({"provider": pid, "model": model, "status": "timeout"})
+                last_error = "zaman aşımı"
+            except httpx.ConnectError:
+                m["fail"] += 1; m["last"] = "connect"
+                attempts.append({"provider": pid, "model": model, "status": "connect"})
+                last_error = ("yerel Ollama'ya bağlanılamadı" if pid == "ollama"
+                              else "sağlayıcıya bağlanılamadı")
+            except httpx.HTTPStatusError as e:
+                m["fail"] += 1; m["last"] = f"http{e.response.status_code}"
+                detail = ""
+                try:
+                    detail = e.response.text[:160]
+                except Exception:
+                    pass
+                attempts.append({"provider": pid, "model": model,
+                                 "status": f"http {e.response.status_code}", "detail": detail})
+                last_error = f"HTTP {e.response.status_code}"
+            except Exception as e:
+                m["fail"] += 1; m["last"] = "error"
+                attempts.append({"provider": pid, "model": model, "status": "error",
+                                 "detail": str(e)[:160]})
+                last_error = str(e) or type(e).__name__
+
+        # Tüm sağlayıcılar başarısız
+        yield {"type": "error",
+               "message": f"Tüm modeller başarısız oldu ({last_error}).",
+               "attempts": attempts}
+
     # ---- zincir üzerinden tamamlama (failover) ----
     async def complete(self, *, system: str, history: List[Dict[str, str]], message: str,
                        chain: List[Dict[str, str]], api_keys: Dict[str, str],

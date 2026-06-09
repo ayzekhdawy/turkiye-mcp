@@ -36,15 +36,15 @@ class BddkApiClient:
     DOCUMENT_URL_TEMPLATE = "https://www.bddk.org.tr/Mevzuat/DokumanGetir/{document_id}"
     DOCUMENT_MARKDOWN_CHUNK_SIZE = 5000  # Character limit per page
     
-    def __init__(self, request_timeout: float = 60.0):
+    def __init__(self, api_key: str = None, request_timeout: float = 60.0):
         """Initialize the BDDK API client."""
-        self.tavily_api_key = os.getenv("TAVILY_API_KEY")
+        self.tavily_api_key = api_key or os.getenv("TAVILY_API_KEY")
         if not self.tavily_api_key:
             # Fallback to development token
             self.tavily_api_key = "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"
             logger.info("Using fallback Tavily API token (development token)")
         else:
-            logger.info("Using Tavily API key from environment variable")
+            logger.info("Using Tavily API key from %s", "user" if api_key else "environment variable")
         
         self.http_client = httpx.AsyncClient(
             headers={

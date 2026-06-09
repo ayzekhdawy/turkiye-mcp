@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Any
 
 import httpx
 
-from bedesten_models import (
+from .bedesten_models import (
     MevzuatTurEnum,
     BedMevzuatDocument,
     BedSearchResult,

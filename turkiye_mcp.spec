@@ -61,6 +61,15 @@ hidden_imports = [
     "pymupdf._fitz",
     "pypdf",
     "markitdown",
+    # OCR (ONNX tabanlı — Tesseract gerektirmez)
+    "rapidocr_onnxruntime",
+    "rapidocr_onnxruntime.api",
+    "onnxruntime",
+    "onnxruntime.capi",
+    "onnxruntime.capi.onnxruntime",
+    "onnxruntime.capi._pybind_state",
+    # DOCX generation
+    "docx",
     # Feeds
     "feedparser",
     # Crypto
@@ -179,6 +188,14 @@ _skills_dir = os.path.join(PROJECT_ROOT, "skills")
 if os.path.isdir(_skills_dir):
     datas.append((_skills_dir, "skills"))
 
+# Frontend dosyaları (HTML/CSS/JS) — dashboard arayüzü
+_static_dir = os.path.join(PROJECT_ROOT, "static")
+_templates_dir = os.path.join(PROJECT_ROOT, "templates")
+if os.path.isdir(_static_dir):
+    datas.append((_static_dir, "static"))
+if os.path.isdir(_templates_dir):
+    datas.append((_templates_dir, "templates"))
+
 # magika model dosyaları (BDDK, Sigorta Tahkim, Borsa modülleri için gerekli)
 try:
     import magika
@@ -195,6 +212,24 @@ try:
         datas.append((os.path.dirname(ct_kb), "magika/config"))
 except ImportError:
     print("[WARN] magika paketi yüklü değil — BDDK/Sigorta Tahkim/Borsa modülleri çalışmayabilir")
+
+# RapidOCR model dosyaları (OCR — Tesseract gerektirmez)
+try:
+    import rapidocr_onnxruntime
+    _rapid_dir = os.path.dirname(rapidocr_onnxruntime.__file__)
+    datas.append((_rapid_dir, "rapidocr_onnxruntime"))
+    print(f"[OK] rapidocr_onnxruntime bulundu: {_rapid_dir}")
+except ImportError:
+    print("[WARN] rapidocr_onnxruntime yüklü değil — OCR çalışmayabilir")
+
+# ONNX Runtime native kütüphaneler
+try:
+    import onnxruntime
+    _ort_dir = os.path.dirname(onnxruntime.__file__)
+    datas.append((_ort_dir, "onnxruntime"))
+    print(f"[OK] onnxruntime bulundu: {_ort_dir}")
+except ImportError:
+    print("[WARN] onnxruntime yüklü değil — OCR çalışmayabilir")
 
 # ── Analysis ──
 a = Analysis(

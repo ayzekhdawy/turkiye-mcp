@@ -9,8 +9,8 @@ ASGI uygulaması (Starlette + FastMCP), pywebview ile masaüstü penceresi.
 - **Starlette'e `lifespan` parametresi VERİLMEZ** — FastMCP lifespan protokolü uyumsuz, 500 hatası verir
 - **EXE derleme**: `console=True` + `hide_console()` kullanılır, `console=False` pythonw crash yapar
 - **`is_server_running()`**: 200 ve 500 yanıtı "çalışıyor" sayılır (modüller yüklenirken geçici 500 olabilir)
-- **DASHBOARD_HTML içindeki JS'te ters bölü ÇİFT yazılır** — `DASHBOARD_HTML` bir Python `"""..."""` string'i. Python `\n`, `\'`, `\d` gibi tek ters bölülü kaçışları işler (siler/dönüştürür) → tarayıcıya bozuk JS gider. Regex/escape için JS'e ulaşması gereken HER ters bölü `\\n`, `\\d`, `\\*` gibi ÇİFT yazılmalı. Doğrula: `python -c "import app,re;open('x.js','w').write(re.search(r'<script>(.*)</script>',app.DASHBOARD_HTML,re.S).group(1))"` sonra `node --check x.js`.
-- **JS ile kurulan string'lere apostrof/tek tırnak literal koyma** — inline handler argümanları değişken birleştirme olmalı (`fn(\'' + id + '\')`), literal değil. Klasör/oturum ağacı `data-*` attribute + delegated listener kullanır (`setupTree()`).
+- **Frontend dosyaları gerçek statik dosyalardır** — `static/css/style.css`, `static/js/app.js`, `templates/index.html`. Python string kaçışı gerekmez. JS'te ters bölü normal yazılır (`\n`, `\d`, `\*`), Unicode karakterler doğrudan UTF-8. Doğrula: `node --check static/js/app.js`. EXE'de `_base_path()` ile `sys._MEIPASS` altından sunulur, geliştirmede `__file__` dizininden.
+- **JS ile kurulan string'lere apostrof/tek tırnak normal kullanılabilir** — inline handler'lar artık gerçek JS dosyasında, Python string kısıtlaması yok. `data-*` attribute + delegated listener kullanımı hala geçerli.
 - **gpt-oss / reasoning modelleri için `reasoning_effort: "low"`** — Ollama'da gpt-oss varsayılanda tüm token bütçesini gizli düşünceye harcayıp `content`'i BOŞ döndürür. Ollama sağlayıcılarında `reasoning_effort=low` gönderilir; ayrıca content boşsa `reasoning` alanına fallback yapılır.
 
 ## 🆕 v1.6.1 — Gerçek Emsal Karar Metinleri
@@ -48,7 +48,10 @@ Detaylı dosya yapısı, mimari, fonksiyonlar ve değişiklik geçmişi için **
 
 | Dosya | İşlev |
 |-------|-------|
-| `app.py` | Ana ASGI uygulaması — DASHBOARD_HTML (satır 505-1214), tüm route'lar, MCP tool'ları |
+| `app.py` | Ana ASGI uygulaması — tüm route'lar, MCP tool'ları, `_base_path()` ile frontend dosya sunumu |
+| `templates/index.html` | Dashboard HTML şablonu |
+| `static/css/style.css` | Dashboard stilleri |
+| `static/js/app.js` | Dashboard JavaScript (~1850 satır) |
 | `local_run.py` | EXE giriş noktası — sunucu başlatma, pywebview, tray, persistence |
 | `turkiye_mcp.spec` | PyInstaller derleme spec'i |
 | `PROJECT_MAP.md` | Projenin tam haritası — mimari, fonksiyonlar, teknik kararlar |

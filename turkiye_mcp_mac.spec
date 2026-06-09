@@ -34,6 +34,15 @@ hidden_imports = [
     "pydantic", "pydantic.deprecated", "pydantic.deprecated.decorator",
     # PDF & OCR
     "pymupdf", "fitz", "pymupdf._fitz", "pypdf", "markitdown",
+    # OCR (ONNX tabanlı — Tesseract gerektirmez)
+    "rapidocr_onnxruntime",
+    "rapidocr_onnxruntime.api",
+    "onnxruntime",
+    "onnxruntime.capi",
+    "onnxruntime.capi.onnxruntime",
+    "onnxruntime.capi._pybind_state",
+    # DOCX generation
+    "docx",
     # Feeds
     "feedparser",
     # Crypto
@@ -98,6 +107,22 @@ try:
     ct_kb = os.path.join(magika_dir, "config", "content_types_kb.min.json")
     if os.path.isfile(ct_kb):
         datas.append((os.path.dirname(ct_kb), "magika/config"))
+except ImportError:
+    pass
+
+# RapidOCR model dosyaları (OCR — Tesseract gerektirmez)
+try:
+    import rapidocr_onnxruntime
+    _rapid_dir = os.path.dirname(rapidocr_onnxruntime.__file__)
+    datas.append((_rapid_dir, "rapidocr_onnxruntime"))
+except ImportError:
+    pass
+
+# ONNX Runtime native kütüphaneler
+try:
+    import onnxruntime
+    _ort_dir = os.path.dirname(onnxruntime.__file__)
+    datas.append((_ort_dir, "onnxruntime"))
 except ImportError:
     pass
 

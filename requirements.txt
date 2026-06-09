@@ -14,12 +14,12 @@ pandas>=2.0.0
 borsapy>=0.9.0
 yfscreen>=0.1.0
 tradingview-screener>=3.0.0
-# PDF & Markdown
+# PDF & Markdown & OCR
 markitdown[pdf]>=0.1.1
 pymupdf>=1.24.0
-# OCR fallback (optional — install pytesseract + Tesseract OCR + poppler for pdf2image)
-# pytesseract>=0.3.10
-# pdf2image>=1.17.0
+rapidocr-onnxruntime>=1.4.0
+# DOCX generation
+python-docx>=1.1.0
 # Encryption (ihale)
 cryptography>=44.0.0
 # SSE transport

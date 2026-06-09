@@ -163,8 +163,12 @@ def load_skills(force: bool = False) -> List[Dict[str, Any]]:
     return skills
 
 
-def select_skills(message: str, doc_type: str = "", max_skills: int = 2) -> List[Dict[str, Any]]:
-    """Mesaj + belge türüne göre en ilgili skill'leri puanlayarak seçer."""
+def select_skills(message: str, doc_type: str = "", max_skills: int = 3) -> List[Dict[str, Any]]:
+    """Mesaj + belge türüne göre en ilgili skill'leri puanlayarak seçer.
+
+    Puanlama: Tetikleyici eşleşmesi başına 2 + len(trig)//10 bonusu
+    (daha uzun/spesifik tetikleyiciler öncelikli), doc_type eşleşmesi +5.
+    """
     skills = load_skills()
     if not skills:
         return []
@@ -178,7 +182,7 @@ def select_skills(message: str, doc_type: str = "", max_skills: int = 2) -> List
         score = 0
         for trig in sk["triggers"]:
             if trig and trig in msg:
-                score += 2
+                score += 2 + len(trig) // 10  # daha spesifik tetikleyiciler öncelikli
         if dt and dt in sk["doc_types"]:
             score += 5
         if score > 0:

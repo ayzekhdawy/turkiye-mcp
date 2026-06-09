@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Türkiye MCP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Be+Vietnam+Pro:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- title bar -->
+<div class="titlebar">
+  <div class="tb-left"><span class="tb-flag"></span> Türkiye MCP</div>
+  <div class="tb-controls">
+    <button class="tb-btn" title="Küçült">&#8211;</button>
+    <button class="tb-btn" title="Büyüt">&#9633;</button>
+    <button class="tb-btn close" title="Kapat">&#10005;</button>
+  </div>
+</div>
+
+<div class="shell">
+  <!-- sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">TR</div>
+      <div class="brand-text">
+        <div class="brand-name">Türkiye MCP</div>
+        <div class="brand-sub">Yerel · veriler cihazınızda</div>
+      </div>
+      <button class="sb-collapse" id="sb-collapse-btn" title="Kenar çubuğunu daralt/genişlet" onclick="toggleSidebar()">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+    </div>
+
+    <div class="sb-actions">
+      <button class="new-chat" onclick="newChat()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <span>Yeni Sohbet</span>
+      </button>
+      <button class="new-folder" onclick="createFolder()" title="Yeni Klasör">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
+      </button>
+    </div>
+
+    <div class="tree-wrap">
+      <div class="sb-label">Çalışma Alanı</div>
+      <div class="tree" id="tree"></div>
+    </div>
+
+    <div class="sb-section" id="memory-section">
+      <div class="sb-section-header" data-act="toggle-mem-section">
+        <div class="sb-label">🧠 Bellek</div>
+        <span class="mem-count" id="mem-count"></span>
+        <span class="mem-clear" title="Belleği temizle" onclick="event.stopPropagation();clearMemories()"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></span>
+      </div>
+      <div id="memory-list"></div>
+      <div class="mem-add-row">
+        <select id="mem-cat"><option value="preference">Tercih</option><option value="fact">Olgu</option><option value="instruction">Talimat</option></select>
+        <input id="mem-input" placeholder="Bellek ekle...">
+        <button data-act="add-memory">+</button>
+      </div>
+    </div>
+
+    <div class="sb-section" id="deadline-section">
+      <div class="sb-section-header" data-act="toggle-dl-section">
+        <div class="sb-label">&#x23F0; Süreler</div>
+        <span class="mem-count" id="dl-count"></span>
+      </div>
+      <div id="deadline-list"></div>
+    </div>
+
+    <div class="sb-section" id="dava-section">
+      <div class="sb-section-header" data-act="toggle-dk-section">
+        <div class="sb-label">&#x1F4CB; Davalar</div>
+        <span class="mem-count" id="dk-count"></span>
+      </div>
+      <div id="dava-list"></div>
+    </div>
+
+    <div class="sb-section" id="backup-section">
+      <div class="sb-section-header" data-act="toggle-backup-section">
+        <div class="sb-label">&#x1F4BE; Yedek</div>
+      </div>
+      <div id="backup-list" class="backup-section"></div>
+      <button class="backup-create-btn" data-act="create-backup">+ Yedek Oluştur</button>
+    </div>
+
+    <div class="modules">
+      <div class="sb-label">Modüller</div>
+      <div id="module-list"></div>
+    </div>
+  </aside>
+
+  <!-- main -->
+  <main class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div class="status" id="server-status"><span class="sdot"></span><span>Bağlanıyor...</span></div>
+        <span id="token-chip" class="token-chip" style="display:none"></span>
+      </div>
+      <div class="topbar-right">
+        <button class="model-chip warn" id="model-chip" onclick="openSettings()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M1 12h4M19 12h4M4.2 19.8 7 17M17 7l2.8-2.8"/></svg>
+          <span id="model-chip-text">API anahtarı gerekli</span>
+        </button>
+        <button class="icon-btn" title="Sistem (Gateway · Skills · Araçlar)" onclick="openSystemPanel()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </button>
+        <button class="icon-btn" title="Ayarlar" onclick="openSettings()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="canvas" id="chat-area">
+      <!-- welcome screen shown when no active chat -->
+      <div class="hero" id="welcome-screen">
+        <h1 class="display">Türkiye MCP <span class="ac">Asistanı</span></h1>
+        <p>Türk hukuk, mali, ihale ve piyasa verileri hakkında soru sorun. PDF veya EYP/UDF dosyası yükleyip detayları çektirebilirsiniz.</p>
+        <div class="cards">
+          <div class="card" onclick="fill('2025 asgari ücret brüt ve net olarak ne kadar?')">
+            <div class="card-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+            <h3>Asgari Ücret</h3>
+            <div class="desc">2025 asgari ücret ve prim bilgisi</div>
+          </div>
+          <div class="card" onclick="fill('Yargıtay mülkiyet hakkı ile ilgili kararları ara')">
+            <div class="card-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M5 7h14M7 7l-3 7a4 4 0 0 0 6 0L7 7zM17 7l-3 7a4 4 0 0 0 6 0l-3-7zM7 21h10"/></svg></div>
+            <h3>Yargıtay Kararları</h3>
+            <div class="desc">Mülkiyet hakkı içtihatları</div>
+          </div>
+          <div class="card" onclick="fill('Ankara\'daki aktif kamu ihalelerini listele')">
+            <div class="card-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-6h6v6"/></svg></div>
+            <h3>İhale Arama</h3>
+            <div class="desc">Ankara'daki kamu ihaleleri</div>
+          </div>
+          <div class="card" onclick="document.getElementById('file-input').click()">
+            <div class="card-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h6"/></svg></div>
+            <h3>Belge Yükle</h3>
+            <div class="desc">PDF veya EYP/UDF dosyası</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- file drop overlay -->
+    <div class="file-drop-overlay" id="file-drop-overlay">📄 Dosya yüklemek için bırakın</div>
+    <input type="file" id="file-input" accept=".pdf,.eyp,.udf,.txt,.md" style="display:none" onchange="handleFileUpload(this)">
+
+    <!-- composer -->
+    <div class="composer">
+      <div style="width:100%;max-width:760px">
+        <div class="attachments" id="attachments"></div>
+        <div class="composer-inner">
+          <button class="attach" title="Dosya ekle" onclick="document.getElementById('file-input').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+          <textarea id="chat-input" rows="1" placeholder="Soru sorun veya dosya yükleyin..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}" oninput="autoResize(this)"></textarea>
+          <button class="send" id="send-btn" onclick="sendMessage()" title="Gönder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
+        </div>
+        <div class="composer-hint">Yanıtlar yapay zekâ tarafından üretilir; nihai karar için teyit edin.</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- settings modal -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2 class="display">Ayarlar</h2>
+    <div class="modal-sub">Bağlantı ve tercihlerinizi yönetin.</div>
+    <div class="panel-tabs">
+      <div class="panel-tab active" id="stab-conn" onclick="switchSettingsTab('conn')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/></svg> Bağlantı</div>
+      <div class="panel-tab" id="stab-pref" onclick="switchSettingsTab('pref')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg> Tercihler</div>
+    </div>
+
+    <div id="set-conn">
+      <div class="field">
+        <label>Sağlayıcı</label>
+        <select id="llm-provider" onchange="onProviderChange()">
+          <option value="openrouter">OpenRouter</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="ollama_cloud">Ollama Cloud</option>
+          <option value="ollama">Ollama (Yerel)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Model</label>
+        <select id="llm-model"></select>
+      </div>
+      <div class="field" id="api-key-field">
+        <label>API Anahtarı <span id="api-key-hint" style="font-weight:400;color:var(--faint)"></span></label>
+        <input type="password" id="llm-api-key" placeholder="sk-..." />
+      </div>
+      <div class="test-row">
+        <button class="btn-ghost" type="button" onclick="testConnection()" id="test-btn">⚡ Bağlantıyı Test Et</button>
+        <span id="test-status" class="test-status"></span>
+      </div>
+      <div class="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Anahtarınız yalnızca bu cihazda saklanır. Her sağlayıcı için ayrı anahtar hatırlanır. Ollama Cloud için <b>ollama.com</b> API anahtarınızı girin.
+      </div>
+    </div>
+
+    <div id="set-pref" style="display:none">
+      <div class="field">
+        <label>Tema</label>
+        <select id="ui-theme" onchange="applyTheme(this.value)">
+          <option value="dark">Koyu</option>
+          <option value="light">Açık</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Token bütçesi uyarısı <span style="font-weight:400;color:var(--faint)">(oturum başına)</span></label>
+        <input type="number" id="token-budget" min="0" step="1000" placeholder="örn. 50000 (0 = kapalı)" />
+      </div>
+      <div class="field">
+        <label>Gateway zaman aşımı <span style="font-weight:400;color:var(--faint)">(saniye, 0 = varsayılan)</span></label>
+        <input type="number" id="gw-timeout" min="0" max="600" step="10" placeholder="0" />
+      </div>
+      <div class="field">
+        <label>Otomatik bellek <span style="font-weight:400;color:var(--faint)">(sohbetlerden öğren)</span></label>
+        <select id="auto-memory">
+          <option value="1">Açık — kalıcı bilgileri otomatik hatırla</option>
+          <option value="0">Kapalı</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Veri dizini <span style="font-weight:400;color:var(--faint)">(salt okunur)</span></label>
+        <input type="text" id="data-dir" readonly style="opacity:.7;font-size:12px" />
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeSettings()">Vazgeç</button>
+      <button class="btn-primary" onclick="saveConfig()">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- system panel modal -->
+<div class="overlay" id="sys-overlay">
+  <div class="modal" style="width:560px">
+    <h2 class="display">Sistem</h2>
+    <div class="modal-sub">Gateway durumu, uzmanlık yönergeleri (skills) ve araçlar.</div>
+    <div class="panel-tabs">
+      <div class="panel-tab active" id="tab-gateway" onclick="switchPanelTab('gateway')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg> Gateway</div>
+      <div class="panel-tab" id="tab-skills" onclick="switchPanelTab('skills')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg> Skills</div>
+      <div class="panel-tab" id="tab-tools" onclick="switchPanelTab('tools')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.7 2.7-2.3-.4-.4-2.3 2.8-2.7z"/></svg> Araçlar</div>
+      <div class="panel-tab" id="tab-computer" onclick="switchPanelTab('computer')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg> Bilgisayar</div>
+      <div class="panel-tab" id="tab-cache" onclick="switchPanelTab('cache')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m0 0a9 9 0 0 1 9-9m-9 9a9 9 0 0 0 9 9m9-9a9 9 0 0 1-9 9"/></svg> \u00d6nbellek</div>
+      <div class="panel-tab" id="tab-apikeys" onclick="switchPanelTab('apikeys')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7zm0 0L17 8"/></svg> Anahtarlar</div>
+      <div class="panel-tab" id="tab-deadlines" onclick="switchPanelTab('deadlines')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> Süreler</div>
+      <div class="panel-tab" id="tab-davalar" onclick="switchPanelTab('davalar')"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg> Davalar</div>
+    </div>
+    <div class="panel-body">
+      <div id="pane-gateway"></div>
+      <div id="pane-skills" style="display:none"></div>
+      <div id="pane-tools" style="display:none"></div>
+      <div id="pane-computer" style="display:none"></div>
+      <div id="pane-cache" style="display:none"></div>
+      <div id="pane-apikeys" style="display:none"></div>
+      <div id="pane-deadlines" style="display:none"></div>
+      <div id="pane-davalar" style="display:none"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:18px">
+      <button class="btn-primary" onclick="closeSystemPanel()">Kapat</button>
+    </div>
+  </div>
+</div>
+
+<!-- skill confirm modal -->
+<div class="overlay" id="skill-overlay">
+  <div class="modal" style="width:560px">
+    <h2>Skill Kaydet</h2>
+    <div class="modal-sub" id="skill-confirm-name"></div>
+    <div class="sk-editor">
+      <textarea id="skill-confirm-content" placeholder="SKILL.md icerigi..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" data-act="cancel-skill-save">Iptal</button>
+      <button class="btn-primary" data-act="confirm-skill-save">Kaydet</button>
+    </div>
+  </div>
+</div>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
